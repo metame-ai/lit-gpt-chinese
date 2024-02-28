@@ -11,6 +11,7 @@ Port for Lit-GPT
 from dataclasses import dataclass
 from typing import Any, Dict, Optional, Tuple, Type
 
+import math
 import torch
 import torch.nn as nn
 from typing_extensions import Self
@@ -22,6 +23,8 @@ from lit_gpt.adapter import CausalSelfAttention as BaseCausalSelfAttention
 from lit_gpt.adapter import Config as BaseConfig
 from lit_gpt.model import KVCache
 from lit_gpt.utils import map_old_state_dict_weights
+
+import torch.nn.functional as F
 
 
 @dataclass
@@ -62,6 +65,42 @@ class AdapterV2Linear(torch.nn.Module):
         nn.init.ones_(self.adapter_scale)
 
 
+class AdapterV2NormHead(torch.nn.Module):
+    def __init__(self, in_features, out_features, bias=False):
+        super().__init__()
+        self.weight = nn.Parameter(torch.empty((out_features, in_features)))
+        nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
+        self.first_flag = True
+
+        self.adapter_bias = torch.nn.Parameter(torch.zeros(out_features), requires_grad=False)
+        self.adapter_scale = torch.nn.Parameter(torch.ones(out_features), requires_grad=False)
+
+    def reset_parameters(self) -> None:
+        nn.init.zeros_(self.adapter_bias)
+        nn.init.ones_(self.adapter_scale)
+
+    def forward(self, hidden_states):
+        if self.training:
+            norm_weight = nn.functional.normalize(self.weight)
+            self.first_flag = True
+        elif self.first_flag:
+            self.first_flag = False
+            self.weight.data = nn.functional.normalize(self.weight)
+            norm_weight = self.weight
+        else:
+            norm_weight = self.weight
+        out = nn.functional.linear(hidden_states, norm_weight)
+        return self.adapter_scale * (out + self.adapter_bias)
+
+    def _load_from_state_dict(self, state_dict: Dict, prefix: str, *args: Any, **kwargs: Any) -> None:
+        """For compatibility with base checkpoints."""
+        mapping = {
+            "linear.weight": "weight",
+        }
+        state_dict = map_old_state_dict_weights(state_dict, mapping, prefix)
+        super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
+
+
 class GPT(BaseModel):
     def __init__(self, config: Config) -> None:
         # Skip the parent class __init__ altogether and replace it to avoid useless allocations
@@ -69,7 +108,10 @@ class GPT(BaseModel):
         assert config.padded_vocab_size is not None
         self.config = config
 
-        self.lm_head = AdapterV2Linear(config.n_embd, config.padded_vocab_size, bias=config.lm_head_bias)
+        if config.lm_head_type == "linear":
+            self.lm_head = AdapterV2Linear(config.n_embd, config.padded_vocab_size, bias=config.lm_head_bias)
+        elif config.lm_head_type == "norm_head":
+            self.lm_head = AdapterV2NormHead(config.n_embd, config.padded_vocab_size, bias=config.lm_head_bias)
         self.transformer = nn.ModuleDict(
             dict(
                 wte=nn.Embedding(config.padded_vocab_size, config.n_embd),
@@ -121,7 +163,8 @@ class CausalSelfAttention(BaseCausalSelfAttention):
         nn.Module.__init__(self)
         shape = (config.n_head + 2 * config.n_query_groups) * config.head_size
         # key, query, value projections for all heads, but in a batch
-        self.attn = AdapterV2Linear(in_features=config.n_embd, out_features=shape, bias=config.bias)
+        self.attn = AdapterV2Linear(in_features=config.n_embd, out_features=shape,
+                                    bias=config.add_qkv_bias)
         # output projection
         # if `head_size` is explicitly specified in the config, `n_emd` might not be equal to `head_size * n_head`
         self.proj = AdapterV2Linear(config.head_size * config.n_head, config.n_embd, bias=config.bias)
@@ -190,6 +233,34 @@ class LLaMAMLP(lit_gpt.model.LLaMAMLP):
             "fc_2.bias": "fc_2.linear.bias",
             "proj.weight": "proj.linear.weight",
             "proj.bias": "proj.linear.bias",
+        }
+        state_dict = map_old_state_dict_weights(state_dict, mapping, prefix)
+        super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
+
+
+class ChatGLM2MLP(lit_gpt.model.ChatGLM2MLP):
+    def __init__(self, config: Config) -> None:
+        nn.Module.__init__(self)
+        self.add_bias = config.bias
+        self.dense_h_to_4h = AdapterV2Linear(config.n_embd, config.intermediate_size * 2,
+                                       bias=self.add_bias)
+
+        def swiglu(x):
+            x = torch.chunk(x, 2, dim=-1)
+            return F.silu(x[0]) * x[1]
+
+        self.activation_func = swiglu
+
+        self.dense_4h_to_h = AdapterV2Linear(config.intermediate_size, config.n_embd,
+                                       bias=self.add_bias)
+
+    def _load_from_state_dict(self, state_dict: Dict, prefix: str, *args: Any, **kwargs: Any) -> None:
+        """For compatibility with base checkpoints."""
+        mapping = {
+            "dense_4h_to_h.weight": "dense_4h_to_h.linear.weight",
+            "dense_4h_to_h.bias": "dense_4h_to_h.linear.bias",
+            "dense_h_to_4h.weight": "dense_h_to_4h.linear.weight",
+            "dense_h_to_4h.bias": "dense_h_to_4h.linear.bias",
         }
         state_dict = map_old_state_dict_weights(state_dict, mapping, prefix)
         super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)

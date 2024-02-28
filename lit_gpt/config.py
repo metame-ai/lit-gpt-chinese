@@ -54,13 +54,23 @@ class Config:
     shared_attention_norm: bool = False
     _norm_class: Literal["LayerNorm", "RMSNorm"] = "LayerNorm"
     norm_eps: float = 1e-5
-    _mlp_class: Literal["GptNeoxMLP", "LLaMAMLP", "GemmaMLP", "LLaMAMoE"] = "GptNeoxMLP"
+    _mlp_class: Literal["GptNeoxMLP", "LLaMAMLP", "GemmaMLP", "LLaMAMoE", "ChatGLM2MLP"] = "GptNeoxMLP"
     gelu_approximate: str = "none"
     intermediate_size: Optional[int] = None
     rope_condense_ratio: int = 1
     rope_base: int = 10000
     n_expert: int = 0
     n_expert_per_token: int = 0
+
+    # setting related to chatglm
+    add_qkv_bias: Optional[bool] = None
+    add_attention_scale: bool = True
+    rope_type: str = "default"
+
+    # setting related to baichuan2
+    lm_head_type: str = "linear"
+    # "rope" or "alibi"
+    position_emb_type: str = "rope"
 
     def __post_init__(self):
         if not self.name:
@@ -88,6 +98,9 @@ class Config:
             if self._mlp_class == "LLaMAMLP":
                 raise ValueError("The config needs to set the `intermediate_size`")
             self.intermediate_size = 4 * self.n_embd
+
+        if self.add_qkv_bias is None:
+            self.add_qkv_bias = self.bias
 
         self.rope_n_elem = int(self.rotary_percentage * self.head_size)
 
@@ -1443,5 +1456,232 @@ llama_2_function_calling = [
 ]
 
 configs.extend(llama_2_function_calling)
+
+###############
+# 01/Yi
+###############
+
+# https://huggingface.co/01-ai/Yi-6B-Chat/blob/main/config.json
+yi_6b = dict(
+        name="yi-6b{}-hf",
+        hf_config=dict(org="01-ai", name="Yi-6B{}"),
+        vocab_size=64000,
+        padding_multiple=64,
+        n_layer=32,
+        n_head=32,
+        n_embd=4096,
+        block_size=4096,
+        n_query_groups=4,
+        rotary_percentage=1.0,
+        parallel_residual=False,
+        bias=False,
+        _norm_class="RMSNorm",
+        _mlp_class="LLaMAMLP",
+        intermediate_size=11008,
+        rope_base=5000000,
+        norm_eps=1e-5,
+    )
+
+# https://huggingface.co/01-ai/Yi-34B-Chat/blob/main/config.json
+yi_34b = deepcopy(yi_6b)
+yi_34b.update(dict(
+        name="yi-34b{}-hf",
+        hf_config=dict(org="01-ai", name="Yi-34B{}"),
+        n_layer=60,
+        n_head=56,
+        n_embd=7168,
+        n_query_groups=8,
+        intermediate_size=20480,
+    ))
+
+for c in [yi_6b, yi_34b]:
+    for posfix in ['', '-200K', '-Chat']:
+        copy = deepcopy(c)
+        if posfix == "-200K":
+            copy["block_size"] = 200000
+        copy["name"] = c["name"].format(posfix.lower())
+        copy["hf_config"]["name"] = c["hf_config"]["name"].format(posfix)
+        configs.append(copy)
+
+###############
+# THUDM chatglm 2
+###############
+chatglm_2 = [
+    # https://huggingface.co/THUDM/chatglm2-6b/blob/main/config.json
+    dict(
+        name="chatglm2-6b-hf",
+        hf_config=dict(org="THUDM", name="chatglm2-6b"),
+        block_size=32768,
+        padded_vocab_size=65024,
+        bias=False,
+        add_qkv_bias=True,
+        n_layer=28,
+        n_head=32,
+        n_embd=4096,
+        rotary_percentage=0.5,
+        n_query_groups=2,
+        intermediate_size=13696,
+        parallel_residual=False,
+        norm_eps=1e-5,
+        _norm_class="RMSNorm",
+        _mlp_class="ChatGLM2MLP",
+        add_attention_scale=False,
+        rope_type="chatglm",
+    )
+]
+configs.extend(chatglm_2)
+
+###############
+# Baichuan baichuan 2
+###############
+# https://huggingface.co/baichuan-inc/Baichuan2-7B-Chat/blob/main/config.json
+baichuan_2 = dict(
+        name="baichuan2-7b-chat-hf",
+        hf_config=dict(org="baichuan-inc", name="Baichuan2-7B-Chat"),
+        block_size=4096,
+        # vocab_size
+        padded_vocab_size=125696,
+        bias=False,
+        n_layer=32,
+        n_head=32,
+        n_embd=4096,
+        rotary_percentage=1,
+        intermediate_size=11008,
+        parallel_residual=False,
+        norm_eps=1e-6,
+        _norm_class="RMSNorm",
+        _mlp_class="LLaMAMLP",
+        add_attention_scale=False,
+        lm_head_type="norm_head",
+    )
+configs.append(baichuan_2)
+
+_baichuan2_7b_base = deepcopy(baichuan_2)
+_baichuan2_7b_base["name"] = "baichuan2-7b-base-hf"
+_baichuan2_7b_base["hf_config"]["name"] = "Baichuan2-7B-Base"
+configs.append(_baichuan2_7b_base)
+
+_baichuan2_13b_chat = deepcopy(baichuan_2)
+_baichuan2_13b_chat["name"] = "baichuan2-13b-chat-hf"
+_baichuan2_13b_chat["hf_config"]["name"] = "Baichuan2-13B-Chat"
+_baichuan2_13b_chat["n_layer"] = 40
+_baichuan2_13b_chat["n_head"] = 40
+_baichuan2_13b_chat["n_embd"] = 5120
+_baichuan2_13b_chat["position_emb_type"] = "alibi"
+_baichuan2_13b_chat["intermediate_size"] = 13696
+configs.append(_baichuan2_13b_chat)
+
+_baichuan2_13b_base = deepcopy(_baichuan2_13b_chat)
+_baichuan2_13b_base["name"] = "baichuan2-13b-base-hf"
+_baichuan2_13b_base["hf_config"]["name"] = "Baichuan2-13B-Base"
+configs.append(_baichuan2_13b_base)
+
+###############
+# THUDM chatglm 3
+###############
+# https://huggingface.co/THUDM/chatglm3-6b/blob/main/config.json
+_base_chatglm3_config = dict(
+        name="chatglm3-6b-hf",
+        hf_config=dict(org="THUDM", name="chatglm3-6b"),
+        block_size=8192,
+        padded_vocab_size=65024,
+        bias=False,
+        add_qkv_bias=True,
+        n_layer=28,
+        n_head=32,
+        n_embd=4096,
+        rotary_percentage=0.5,
+        n_query_groups=2,
+        intermediate_size=13696,
+        parallel_residual=False,
+        norm_eps=1e-5,
+        _norm_class="RMSNorm",
+        _mlp_class="ChatGLM2MLP",
+        add_attention_scale=False,
+        rope_type="chatglm",
+    )
+configs.append(_base_chatglm3_config)
+# chatglm3-32k
+# https://huggingface.co/THUDM/chatglm3-6b-32k/blob/main/config.json
+_chatglm3_32k = deepcopy(_base_chatglm3_config)
+_chatglm3_32k["name"] = "chatglm3-6b-32k-hf"
+_chatglm3_32k["hf_config"]["name"] = "chatglm3-6b-32k"
+_chatglm3_32k["rope_base"] = 500000
+_chatglm3_32k["block_size"] = 32768
+configs.append(_chatglm3_32k)
+# chatglm3-32k-base
+# https://huggingface.co/THUDM/chatglm3-6b-base/blob/main/config.json
+_chatglm3_base = deepcopy(_base_chatglm3_config)
+_chatglm3_base["name"] = "chatglm3-6b-base-hf"
+_chatglm3_base["hf_config"]["name"] = "chatglm3-6b-base"
+_chatglm3_base["block_size"] = 32768
+configs.append(_chatglm3_base)
+
+###############
+# Qwen Qwen1.5
+###############
+# https://huggingface.co/Qwen/Qwen1.5-4B/blob/main/config.json
+_base_qwen1_5_config = dict(
+        name="Qwen1.5-{}B{}",
+        hf_config=dict(org="Qwen", name="Qwen1.5-{}B{}"),
+        block_size=32768,
+        padded_vocab_size=151936,
+        bias=False,
+        n_layer=24,
+        n_head=16,
+        n_embd=2048,
+        add_qkv_bias=True,
+        rotary_percentage=1,
+        intermediate_size=5504,
+        parallel_residual=False,
+        norm_eps=1e-6,
+        _norm_class="RMSNorm",
+        _mlp_class="LLaMAMLP",
+        rope_base=1000000,
+    )
+
+_qwen1_5_param_dict = {
+    "0.5": {
+        "n_layer": 24,
+        "n_head": 16,
+        "n_embd": 1024,
+        "intermediate_size": 2816,
+        # tied_word_embeddings
+    },
+    "4": {
+        "n_layer": 40,
+        "n_head": 20,
+        "n_embd": 2560,
+        "intermediate_size": 6912,
+        "rope_base": 5000000,
+    },
+    "7": {
+        "n_layer": 32,
+        "n_head": 32,
+        "n_embd": 4096,
+        "intermediate_size": 11008,
+    },
+    "14": {
+        "n_layer": 40,
+        "n_head": 40,
+        "n_embd": 5120,
+        "intermediate_size": 13696,
+    },
+    "72": {
+        "n_layer": 80,
+        "n_head": 64,
+        "n_embd": 8192,
+        "intermediate_size": 24576,
+    },
+}
+
+for size in [0.5, 1.8, 4, 7, 14, 72]:
+    _para = _qwen1_5_param_dict.get(str(size), {})
+    for postfix in ["-Chat", ""]:
+        _qwen = deepcopy(_base_qwen1_5_config)
+        _qwen.update(_para)
+        _qwen["name"] = _qwen["name"].format(size, postfix)
+        _qwen["hf_config"]["name"] = _qwen["hf_config"]["name"].format(size, postfix)
+        configs.append(_qwen)
 
 name_to_config = {config["name"]: config for config in configs}

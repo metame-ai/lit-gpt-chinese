@@ -1,6 +1,7 @@
 # Copyright Lightning AI. Licensed under the Apache License 2.0, see LICENSE file.
 
 import json
+import re
 from pathlib import Path
 from typing import Optional, Union
 
@@ -16,6 +17,27 @@ class Tokenizer:
         self.use_bos = self.check_if_bos_token_used(checkpoint_dir)
         self.bos_id = None
         self.eos_id = None
+
+        self.pad_id = 0
+        self.special_token_dict = {}
+        self.model_name = checkpoint_dir.name
+        if "chatglm2" in self.model_name:
+            # reference: https://huggingface.co/THUDM/chatglm2-6b/blob/main/tokenization_chatglm.py#L23
+            # https://huggingface.co/THUDM/chatglm2-6b/blob/main/tokenization_chatglm.py#L158
+            self.special_token_dict = {"[gMASK]": 64790, "sop": 64792}
+        elif "baichuan2" in self.model_name:
+            # "user_token_id": 195,
+            # "assistant_token_id": 196,
+            self.special_token_dict = {"<user>": 195, "<assistant>": 196}
+        elif "chatglm3" in self.model_name:
+            n_words = self.processor.vocab_size()
+            role_special_tokens = ["<|system|>", "<|user|>", "<|assistant|>", "<|observation|>"]
+            special_tokens = ["[MASK]", "[gMASK]", "[sMASK]", "sop", "eop"] + role_special_tokens
+            for token in special_tokens:
+                self.special_token_dict[token] = n_words
+                n_words += 1
+
+        self.special_token_inverse = {v: k for k, v in self.special_token_dict.items()}
 
         # some checkpoints have both files, `.model` takes precedence
         if (vocabulary_path := checkpoint_dir / "tokenizer.model").is_file():
@@ -46,6 +68,10 @@ class Tokenizer:
                     self.bos_id = config.get("bos_token_id")
                 if self.eos_id is None:
                     self.eos_id = config.get("eos_token_id")
+                # NOTE: some checkpoints have a list of eos tokens
+                # e.g. https://huggingface.co/Qwen/Qwen1.5-1.8B-Chat/blob/main/generation_config.json
+                if isinstance(self.eos_id, list):
+                    self.eos_id = self.eos_id[0]
         else:
             raise NotImplementedError
 
@@ -58,7 +84,9 @@ class Tokenizer:
         raise RuntimeError
 
     def token_to_id(self, token: str) -> int:
-        if self.backend == "huggingface":
+        if token in self.special_token_dict:
+            return self.special_token_dict[token]
+        elif self.backend == "huggingface":
             id_ = self.processor.token_to_id(token)
         elif self.backend == "sentencepiece":
             id_ = self.processor.piece_to_id(token)
@@ -86,6 +114,7 @@ class Tokenizer:
         bos: Optional[bool] = None,
         eos: bool = False,
         max_length: int = -1,
+        return_tensor: bool = True,
     ) -> torch.Tensor:
         if self.backend == "huggingface":
             tokens = self.processor.encode(string).ids
@@ -102,8 +131,11 @@ class Tokenizer:
             tokens = tokens + [self.eos_id]
         if max_length > 0:
             tokens = tokens[:max_length]
-        return torch.tensor(tokens, dtype=torch.int, device=device)
+        if return_tensor:
+            return torch.tensor(tokens, dtype=torch.int, device=device)
+        return tokens
 
     def decode(self, tensor: torch.Tensor) -> str:
         tokens = [tensor.item()] if tensor.ndim == 0 else tensor.tolist()
+        tokens = [t for t in tokens if t not in self.special_token_dict.values()]
         return self.processor.decode(tokens)

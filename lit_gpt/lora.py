@@ -177,6 +177,62 @@ class LoRALinear(LoRALayer):
         return pretrained + lora
 
 
+class LoRANormHead(LoRALinear):
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        # ↓ the remaining part is for LoRA
+        r: int = 0,
+        lora_alpha: int = 1,
+        lora_dropout: float = 0.0,
+        **kwargs: Any,
+    ):
+        super(LoRALinear, self).__init__(
+            r=r, lora_alpha=lora_alpha, lora_dropout=lora_dropout
+        )
+        self.weight = nn.Parameter(torch.empty((out_features, in_features)))
+        nn.init.kaiming_uniform_(self.weight, a=math.sqrt(5))
+        self.first_flag = True
+
+        # Actual trainable parameters
+        if r > 0:
+            self.lora_A = nn.Parameter(torch.zeros((r, in_features)))
+            self.lora_B = nn.Parameter(torch.zeros((out_features, r)))
+            self.scaling = self.lora_alpha / self.r
+            self.reset_parameters()
+
+    def merge(self) -> None:
+        # diable merge for now
+        self.merged = False
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # only norm the pretrained weight
+        if self.training:
+            norm_weight = nn.functional.normalize(self.weight)
+            self.first_flag = True
+        elif self.first_flag:
+            self.first_flag = False
+            self.weight.data = nn.functional.normalize(self.weight)
+            norm_weight = self.weight
+        else:
+            norm_weight = self.weight
+        pretrained = nn.functional.linear(x, norm_weight)
+        if self.r == 0 or self.merged:
+            return pretrained
+
+        lora = (self.lora_dropout(x) @ self.lora_A.transpose(0, 1) @ self.lora_B.transpose(0, 1)) * self.scaling
+        return pretrained + lora
+
+    def _load_from_state_dict(self, state_dict: Dict, prefix: str, *args: Any, **kwargs: Any) -> None:
+        """For compatibility with base checkpoints."""
+        mapping = {
+            "linear.weight": "weight",
+        }
+        state_dict = map_old_state_dict_weights(state_dict, mapping, prefix)
+        super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
+
+
 class LoRAQKVLinear(LoRALinear):
     # LoRA implemented in a dense layer
     def __init__(
@@ -504,14 +560,24 @@ class GPT(BaseModel):
         assert config.padded_vocab_size is not None
         self.config = config
 
-        self.lm_head = LoRALinear(
-            config.n_embd,
-            config.padded_vocab_size,
-            bias=config.lm_head_bias,
-            r=(config.r if config.to_head else 0),
-            lora_alpha=config.alpha,
-            lora_dropout=config.dropout,
-        )
+        if config.lm_head_type == "linear":
+            self.lm_head = LoRALinear(
+                config.n_embd,
+                config.padded_vocab_size,
+                bias=config.lm_head_bias,
+                r=(config.r if config.to_head else 0),
+                lora_alpha=config.alpha,
+                lora_dropout=config.dropout,
+            )
+        elif config.lm_head_type == "norm_head":
+            self.lm_head = LoRANormHead(
+                config.n_embd,
+                config.padded_vocab_size,
+                bias=config.lm_head_bias,
+                r=(config.r if config.to_head else 0),
+                lora_alpha=config.alpha,
+                lora_dropout=config.dropout,
+            )
         self.transformer = nn.ModuleDict(
             dict(
                 wte=nn.Embedding(config.padded_vocab_size, config.n_embd),
@@ -530,8 +596,9 @@ class GPT(BaseModel):
             raise ValueError(f"Cannot forward sequence of length {T}, max seq length is only {self.max_seq_length}.")
 
         if input_pos is not None:  # use the kv cache
-            cos = self.cos.index_select(0, input_pos)
-            sin = self.sin.index_select(0, input_pos)
+            _device = self.cos.device
+            cos = self.cos.index_select(0, input_pos.to(_device))
+            sin = self.sin.index_select(0, input_pos.to(_device))
             if self.mask_cache is None:
                 raise TypeError("You need to call `gpt.set_kv_cache()`")
             mask = self.mask_cache.index_select(2, input_pos)
@@ -592,7 +659,7 @@ class CausalSelfAttention(BaseCausalSelfAttention):
             lora_alpha=config.alpha,
             lora_dropout=config.dropout,
             enable_lora=(config.to_query, config.to_key, config.to_value),
-            bias=config.bias,
+            bias=config.add_qkv_bias,
             # for MQA/GQA support
             n_head=config.n_head,
             n_query_groups=config.n_query_groups,
@@ -695,6 +762,46 @@ class LLaMAMLP(lit_gpt.model.LLaMAMLP):
             "fc_2.bias": "fc_2.linear.bias",
             "proj.weight": "proj.linear.weight",
             "proj.bias": "proj.linear.bias",
+        }
+        state_dict = map_old_state_dict_weights(state_dict, mapping, prefix)
+        super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
+
+
+class ChatGLM2MLP(lit_gpt.model.ChatGLM2MLP):
+    def __init__(self, config: Config) -> None:
+        nn.Module.__init__(self)
+        self.add_bias = config.bias
+        self.dense_h_to_4h = LoRALinear(
+            config.n_embd,
+            config.intermediate_size * 2,
+            bias=self.add_bias,
+            r=(config.r if config.to_mlp else 0),
+            lora_alpha=config.alpha,
+            lora_dropout=config.dropout,
+        )
+
+        def swiglu(x):
+            x = torch.chunk(x, 2, dim=-1)
+            return F.silu(x[0]) * x[1]
+
+        self.activation_func = swiglu
+
+        self.dense_4h_to_h = LoRALinear(
+            config.intermediate_size,
+            config.n_embd,
+            bias=self.add_bias,
+            r=(config.r if config.to_mlp else 0),
+            lora_alpha=config.alpha,
+            lora_dropout=config.dropout,
+        )
+
+    def _load_from_state_dict(self, state_dict: Dict, prefix: str, *args: Any, **kwargs: Any) -> None:
+        """For compatibility with base checkpoints."""
+        mapping = {
+            "dense_4h_to_h.weight": "dense_4h_to_h.linear.weight",
+            "dense_4h_to_h.bias": "dense_4h_to_h.linear.bias",
+            "dense_h_to_4h.weight": "dense_h_to_4h.linear.weight",
+            "dense_h_to_4h.bias": "dense_h_to_4h.linear.bias",
         }
         state_dict = map_old_state_dict_weights(state_dict, mapping, prefix)
         super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)

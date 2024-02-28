@@ -49,6 +49,15 @@ Supports the following popular model checkpoints:
 | [TinyLlama](tutorials/download_tinyllama.md) by Zhang et al.                         | 1.1B                                     | [Zhang et al. 2023](https://github.com/jzhang38/TinyLlama)                                                                   |
 | [Vicuna](tutorials/download_vicuna.md) by LMSYS                                      | 7B, 13B, 33B                             | [Li et al. 2023](https://lmsys.org/blog/2023-03-30-vicuna/)                                                                  |
 
+
+| Chinese Model                                                                                | Model size                               | Reference                                                                                                                    |
+|--------------------------------------------------------------------------------------|------------------------------------------|------------------------------------------------------------------------------------------------------------------------------|
+| Qwen1.5                                    | {0.5,1.8,4,7,14,72}B                              | [Qwen1.5](https://github.com/QwenLM/Qwen1.5) |
+| 01-ai [Yi](tutorials/download_yi.md)                                   | 6B, 34B                              | [01-ai 2023](https://github.com/01-ai/Yi) |
+| Baichuan 2                                | 7B-Chat/Base, 13B-Chat/Base | [Baichuan 2](https://github.com/baichuan-inc/Baichuan2)                                         |
+| ChatGLM3                                 | 6B, 6B-Base, 6B-32k | [ChatGLM3](https://github.com/THUDM/ChatGLM3)                                         |
+| ChatGLM2                                 | 6B | [ChatGLM2-6B](https://github.com/THUDM/ChatGLM2-6B)        
+
 This implementation extends on [Lit-LLaMA](https://github.com/lightning-AI/lit-llama) and [nanoGPT](https://github.com/karpathy/nanoGPT), and it's **powered by [Lightning Fabric](https://lightning.ai/docs/fabric/stable/) ⚡**.
 
 &nbsp;

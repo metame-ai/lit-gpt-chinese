@@ -112,6 +112,116 @@ def copy_weights_falcon(
         state_dict[to_name] = param
 
 
+def copy_weights_hf_chatglm2(
+    config: Config,
+    state_dict: Dict[str, torch.Tensor],
+    hf_weights: Dict[str, Union[torch.Tensor, NotYetLoadedTensor]],
+    saver: Optional[incremental_save] = None,
+    dtype: Optional[torch.dtype] = None,
+    verbose: bool = True,
+) -> None:
+    weight_map = {
+        "transformer.embedding.word_embeddings.weight": "transformer.wte.weight",
+        "transformer.encoder.layers.{}.input_layernorm.weight": "transformer.h.{}.norm_1.weight",
+        "transformer.encoder.layers.{}.self_attention.query_key_value.weight": "transformer.h.{}.attn.attn.weight",
+        "transformer.encoder.layers.{}.self_attention.query_key_value.bias": "transformer.h.{}.attn.attn.bias",
+        "transformer.encoder.layers.{}.self_attention.dense.weight": "transformer.h.{}.attn.proj.weight",
+        "transformer.encoder.layers.{}.post_attention_layernorm.weight": "transformer.h.{}.norm_2.weight",
+        # "model.layers.{}.self_attn.rotary_emb.inv_freq": None,
+        "transformer.rotary_pos_emb.inv_freq": None,
+        "transformer.encoder.layers.{}.mlp.dense_h_to_4h.weight": "transformer.h.{}.mlp.dense_h_to_4h.weight",
+        "transformer.encoder.layers.{}.mlp.dense_4h_to_h.weight": "transformer.h.{}.mlp.dense_4h_to_h.weight",
+        "transformer.encoder.final_layernorm.weight": "transformer.ln_f.weight",
+        "transformer.output_layer.weight": "lm_head.weight",
+    }
+
+    for name, param in hf_weights.items():
+        if "encoder.layers" in name:
+            from_name, number = layer_template(name, 3)
+            to_name = weight_map[from_name]
+            if to_name is None:
+                continue
+            to_name = to_name.format(number)
+        else:
+            to_name = weight_map[name]
+            if to_name is None:
+                continue
+        param = load_param(param, name, dtype)
+
+        if "self_attention.query_key_value" in name:
+            q_per_kv = config.n_head // config.n_query_groups
+            q, k, v = torch.split(param, [
+                config.n_head*config.head_size,
+                config.n_query_groups*config.head_size,
+                config.n_query_groups*config.head_size,
+                ], dim=0)
+            qs = torch.split(q, config.head_size * q_per_kv)
+            ks = torch.split(k, config.head_size)
+            vs = torch.split(v, config.head_size)
+            cycled = [t for group in zip(qs, ks, vs) for t in group]
+            qkv = torch.cat(cycled)
+            param = qkv
+            if verbose:
+                print(f"name: {name}, param: {param.size()}")
+        if saver is not None:
+            param = saver.store_early(param)
+        state_dict[to_name] = param
+
+
+def copy_weights_hf_baichuan2(
+    config: Config,
+    state_dict: Dict[str, torch.Tensor],
+    hf_weights: Dict[str, Union[torch.Tensor, NotYetLoadedTensor]],
+    saver: Optional[incremental_save] = None,
+    dtype: Optional[torch.dtype] = None,
+    verbose: bool = True,
+) -> None:
+    weight_map = {
+        "model.embed_tokens.weight": "transformer.wte.weight",
+        "model.layers.{}.input_layernorm.weight": "transformer.h.{}.norm_1.weight",
+        "model.layers.{}.self_attn.W_pack.weight": "transformer.h.{}.attn.attn.weight",
+        "model.layers.{}.self_attn.o_proj.weight": "transformer.h.{}.attn.proj.weight",
+        "model.layers.{}.post_attention_layernorm.weight": "transformer.h.{}.norm_2.weight",
+        "model.layers.{}.mlp.gate_proj.weight": "transformer.h.{}.mlp.fc_1.weight",
+        "model.layers.{}.mlp.up_proj.weight": "transformer.h.{}.mlp.fc_2.weight",
+        "model.layers.{}.mlp.down_proj.weight": "transformer.h.{}.mlp.proj.weight",
+        "model.norm.weight": "transformer.ln_f.weight",
+        "lm_head.weight": "lm_head.weight",
+    }
+
+    for name, param in hf_weights.items():
+        if "model.layers" in name:
+            from_name, number = layer_template(name, 2)
+            to_name = weight_map[from_name]
+            if to_name is None:
+                continue
+            to_name = to_name.format(number)
+        else:
+            to_name = weight_map[name]
+            if to_name is None:
+                continue
+        param = load_param(param, name, dtype)
+
+        if "self_attn.W_pack" in name:
+            q_per_kv = config.n_head // config.n_query_groups
+            q, k, v = torch.split(param, [
+                config.n_head*config.head_size,
+                config.n_query_groups*config.head_size,
+                config.n_query_groups*config.head_size,
+                ], dim=0)
+            qs = torch.split(q, config.head_size * q_per_kv)
+            ks = torch.split(k, config.head_size)
+            vs = torch.split(v, config.head_size)
+            cycled = [t for group in zip(qs, ks, vs) for t in group]
+            qkv = torch.cat(cycled)
+            param = qkv
+            if verbose:
+                print(f"name: {name}, param: {param.size()}")
+        if saver is not None:
+            param = saver.store_early(param)
+        state_dict[to_name] = param
+
+
 def copy_weights_hf_llama(
     config: Config,
     qkv_weights: Dict[int, List[Optional[NotYetLoadedTensor]]],
@@ -198,6 +308,76 @@ def copy_weights_hf_llama(
         qkv = torch.cat(cycled)
         state_dict[f"transformer.h.{i}.attn.attn.weight"] = qkv
         del qkv_weights[i]
+
+
+def copy_weights_hf_qwen2(
+    config: Config,
+    qkv_weights: Dict[int, List[Optional[NotYetLoadedTensor]]],
+    state_dict: Dict[str, torch.Tensor],
+    hf_weights: Dict[str, Union[torch.Tensor, NotYetLoadedTensor]],
+    saver: Optional[incremental_save] = None,
+    dtype: Optional[torch.dtype] = None,
+) -> None:
+    weight_map = {
+        "model.embed_tokens.weight": "transformer.wte.weight",
+        "model.layers.{}.input_layernorm.weight": "transformer.h.{l}.norm_1.weight",
+        "model.layers.{}.input_layernorm.bias": "transformer.h.{l}.norm_1.bias",
+        "model.layers.{}.self_attn.q_proj.weight": None,
+        "model.layers.{}.self_attn.k_proj.weight": None,
+        "model.layers.{}.self_attn.v_proj.weight": None,
+        "model.layers.{}.self_attn.q_proj.bias": None,
+        "model.layers.{}.self_attn.k_proj.bias": None,
+        "model.layers.{}.self_attn.v_proj.bias": None,
+        "model.layers.{}.self_attn.o_proj.weight": "transformer.h.{l}.attn.proj.weight",
+        "model.layers.{}.self_attn.rotary_emb.inv_freq": None,
+        "model.layers.{}.post_attention_layernorm.weight": "transformer.h.{l}.norm_2.weight",
+        "model.layers.{}.post_attention_layernorm.bias": "transformer.h.{l}.norm_2.bias",
+        "model.norm.weight": "transformer.ln_f.weight",
+        "model.norm.bias": "transformer.ln_f.bias",
+        "lm_head.weight": "lm_head.weight",
+    }
+    weight_map.update({
+        "model.layers.{}.mlp.gate_proj.weight": "transformer.h.{l}.mlp.fc_1.weight",
+        "model.layers.{}.mlp.up_proj.weight": "transformer.h.{l}.mlp.fc_2.weight",
+        "model.layers.{}.mlp.down_proj.weight": "transformer.h.{l}.mlp.proj.weight",
+    })
+
+    for name, param in hf_weights.items():
+        if "model.layers" in name:
+            from_name, l = layer_template(name, 2)
+            e = None
+            qkv = qkv_weights.setdefault(l, defaultdict(dict))
+            if any(w in from_name for w in ("q_proj", "k_proj", "v_proj")):
+                weight_name, weight_type = from_name.split(".")[-2:]
+                qkv[weight_type][weight_name] = param
+            to_name = weight_map[from_name]
+            if to_name is None:
+                continue
+            to_name = to_name.format(l=l, e=e)
+        else:
+            to_name = weight_map[name]
+        param = load_param(param, name, dtype)
+        if saver is not None:
+            param = saver.store_early(param)
+        state_dict[to_name] = param
+
+    for i in list(qkv_weights):
+        for weight_type in list(qkv_weights[i]):
+            qkv = qkv_weights[i][weight_type]
+            if len(qkv) != 3:
+                # split across different .bin files
+                continue
+            q = load_param(qkv["q_proj"], f"layer {i} q {weight_type}", dtype)
+            k = load_param(qkv["k_proj"], f"layer {i} k {weight_type}", dtype)
+            v = load_param(qkv["v_proj"], f"layer {i} v {weight_type}", dtype)
+            q_per_kv = config.n_head // config.n_query_groups
+            qs = torch.split(q, config.head_size * q_per_kv)
+            ks = torch.split(k, config.head_size)
+            vs = torch.split(v, config.head_size)
+            cycled = [t for group in zip(qs, ks, vs) for t in group]
+            qkv = torch.cat(cycled)
+            state_dict[f"transformer.h.{i}.attn.attn.{weight_type}"] = qkv
+            del qkv_weights[i][weight_type]
 
 
 def copy_weights_phi(
@@ -311,6 +491,14 @@ def convert_hf_checkpoint(
 
     if "falcon" in model_name:
         copy_fn = partial(copy_weights_falcon, model_name)
+    elif "baichuan2" in model_name:
+        copy_fn = partial(copy_weights_hf_baichuan2, config)
+    elif config._mlp_class == "ChatGLM2MLP":
+        copy_fn = partial(copy_weights_hf_chatglm2, config)
+    elif 'Qwen1.5' in model_name:
+        # holder to reconstitute the split q, k, v
+        qkv_weights = {}
+        copy_fn = partial(copy_weights_hf_qwen2, config, qkv_weights)
     elif config._mlp_class in ("LLaMAMLP", "GemmaMLP", "LLaMAMoE"):
         # holder to reconstitute the split q, k, v
         qkv_weights = {}

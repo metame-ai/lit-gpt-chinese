@@ -294,6 +294,11 @@ def prompt_config(checkpoint_dir: Path, tokenizer: Tokenizer,
         stop_tokens = ([tokenizer.eos_id],)
         return system_prompt, stop_tokens
 
+    if re.search("stablecode-instruct", checkpoint_name):
+        system_prompt = "###Instruction\n{prompt}###Response\n"
+        stop_tokens = ([tokenizer.eos_id],)
+        return system_prompt, stop_tokens
+
     if re.search(r"togethercomputer.*Chat", checkpoint_name):
         system_prompt = "<human>: {prompt}\n<bot>:"
         lt, gt = tokenizer.token_to_id("<"), tokenizer.token_to_id(">:")
@@ -304,6 +309,7 @@ def prompt_config(checkpoint_dir: Path, tokenizer: Tokenizer,
             [lt, tokenizer.token_to_id("bot"), gt],
         )
         return system_prompt, stop_tokens
+
     if re.search(r"togethercomputer.*Instruct", checkpoint_name):
         system_prompt = "Q: {prompt}\nA:"
         colon = tokenizer.token_to_id(":")
@@ -319,6 +325,7 @@ def prompt_config(checkpoint_dir: Path, tokenizer: Tokenizer,
             [2756],  # '\n\n\n'
         )
         return system_prompt, stop_tokens
+
     if re.search(r"falcon.*-instruct", checkpoint_name):
         # First line could be modified. AFAIK Falcon doesn't impose a specific system prompt
         # The instruction to not prefix its replies doesn't work always, but better than nothing
@@ -332,6 +339,7 @@ def prompt_config(checkpoint_dir: Path, tokenizer: Tokenizer,
             [193, tokenizer.token_to_id("User")],  # 193: '\n'
         )
         return system_prompt, stop_tokens
+
     if re.search(r"vicuna|longchat", checkpoint_name):
         # https://github.com/lm-sys/FastChat/blob/main/docs/vicuna_weights_version.md#prompt-template
         system_prompt = (
@@ -398,11 +406,6 @@ def prompt_config(checkpoint_dir: Path, tokenizer: Tokenizer,
 
     if re.search("NousResearch", checkpoint_name):
         system_prompt = "### Instruction:\n{prompt}\n\n### Response:\n"
-        stop_tokens = ([tokenizer.eos_id],)
-        return system_prompt, stop_tokens
-
-    if re.search("stablecode-instruct", checkpoint_name):
-        system_prompt = "###Instruction\n{prompt}###Response\n"
         stop_tokens = ([tokenizer.eos_id],)
         return system_prompt, stop_tokens
 

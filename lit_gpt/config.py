@@ -879,6 +879,7 @@ gemma = [
         bias=False,
         _norm_class="RMSNorm",
         _mlp_class="GemmaMLP",
+        gelu_approximate="tanh",
         intermediate_size=16384,
     ),
     # https://huggingface.co/google/gemma-7b/blob/main/config.json
@@ -897,6 +898,7 @@ gemma = [
         bias=False,
         _norm_class="RMSNorm",
         _mlp_class="GemmaMLP",
+        gelu_approximate="tanh",
         intermediate_size=24576,
     ),
 ]

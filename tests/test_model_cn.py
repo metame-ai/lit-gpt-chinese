@@ -18,6 +18,95 @@ sys.path.append(str(wd))
 
 import lit_gpt.config as config_module
 
+@torch.inference_mode()
+@pytest.mark.parametrize(
+    "ours_kwargs",
+    [
+        {"name": "internlm2-chat-1_8b"}, {"name": "internlm2-chat-7b"},
+        {"name": "internlm2-chat-20b"},
+    ],
+)
+@pytest.mark.parametrize(
+    ("device", "dtype"),
+    [
+        (torch.device("cpu"), torch.float32),
+        pytest.param(
+            torch.device("cuda"),
+            torch.float16,
+            marks=[
+                # the reference does softmax upscaled to fp32 during attention. additionally, the final layernorm input
+                # is slightly different
+                pytest.mark.xfail(raises=AssertionError, strict=False),
+                RunIf(min_cuda_gpus=1),
+            ],
+        ),
+    ],
+)
+def test_against_interlm2(ours_kwargs, device, dtype):
+    import importlib
+    from lit_gpt import GPT, Config
+    from scripts.convert_hf_checkpoint import copy_weights_hf_internlm2
+
+    torch.set_default_dtype(dtype)
+
+    T = 5
+    ours_config = Config.from_name(
+        padded_vocab_size=10000, n_layer=2, n_head=8, n_embd=32, 
+        intermediate_size=86, n_query_groups=2, **ours_kwargs
+    )
+
+    hf_name_ori = ours_config.hf_config["name"]
+    hf_name = hf_name_ori.replace("-", "_")
+    workdir = wd / "tests" / "reference_models" / hf_name
+    workdir.mkdir(parents=True, exist_ok=True)
+    file_paths = [workdir / f"configuration_internlm2.py", 
+                  workdir / f"modeling_internlm2.py", 
+                  workdir / f"config.json"]
+    urls = [
+        f"https://huggingface.co/internlm/{hf_name_ori}/raw/main/configuration_internlm2.py",
+        f"https://huggingface.co/internlm/{hf_name_ori}/raw/main/modeling_internlm2.py",
+        f"https://huggingface.co/internlm/{hf_name_ori}/raw/main/config.json",
+    ]
+    for file_path, url in zip(file_paths, urls):
+        if not file_path.is_file():
+            urlretrieve(url=url, filename=file_path)
+    
+    configuration = importlib.import_module(
+        f"reference_models.{hf_name}.configuration_internlm2")   
+    modeling = importlib.import_module(
+        f"reference_models.{hf_name}.modeling_internlm2")
+    
+    hf_config_file = workdir / f"config.json"
+    with open(hf_config_file, "r") as f:
+        hf_config_dict = json.load(f)
+    hf_config_dict.update(
+        {
+            "vocab_size": ours_config.padded_vocab_size, 
+            "num_hidden_layers": ours_config.n_layer,
+            "num_attention_heads": ours_config.n_head,
+            "num_key_value_heads": ours_config.n_query_groups,
+            "hidden_size": ours_config.n_embd,
+            "intermediate_size": ours_config.intermediate_size,
+            "torch_dtype": dtype,
+        }
+    )
+    theirs_config = configuration.InternLM2Config(
+        **hf_config_dict
+    )
+
+    theirs_model = modeling.InternLM2ForCausalLM(theirs_config).to(device)
+    theirs_state_dict = theirs_model.state_dict()
+    state_dict = {}
+    copy_weights_hf_internlm2(ours_config, state_dict, theirs_state_dict, verbose=False)
+    ours_model = GPT(ours_config).to(device)
+    ours_model.load_state_dict(state_dict)
+
+    # test end to end
+    x = torch.tensor([[9856, 23, 491, 1536, 304]], dtype=torch.int32, device=device)
+    assert x.size(1) == T
+    ours_y = ours_model(x)
+    theirs_y = theirs_model(x)["logits"].to(dtype)  # HF converts logits to float
+    torch.testing.assert_close(ours_y, theirs_y)
 
 @torch.inference_mode()
 @pytest.mark.parametrize(
@@ -140,10 +229,10 @@ def test_against_baichuan7b(ours_kwargs, device, dtype):
                   workdir / f"config.json",
                   workdir / f"generation_utils.py"]
     urls = [
-        f"https://huggingface.co/baichuan-inc/{hf_name_ori}/resolve/main/configuration_baichuan.py",
-        f"https://huggingface.co/baichuan-inc/{hf_name_ori}/resolve/main/modeling_baichuan.py",
-        f"https://huggingface.co/baichuan-inc/{hf_name_ori}/resolve/main/config.json",
-        f"https://huggingface.co/baichuan-inc/{hf_name_ori}/resolve/main/generation_utils.py",
+        f"https://huggingface.co/baichuan-inc/{hf_name_ori}/raw/main/configuration_baichuan.py",
+        f"https://huggingface.co/baichuan-inc/{hf_name_ori}/raw/main/modeling_baichuan.py",
+        f"https://huggingface.co/baichuan-inc/{hf_name_ori}/raw/main/config.json",
+        f"https://huggingface.co/baichuan-inc/{hf_name_ori}/raw/main/generation_utils.py",
     ]
     for file_path, url in zip(file_paths, urls):
         if not file_path.is_file():
@@ -236,10 +325,10 @@ def test_against_baichuan13b(ours_kwargs, device, dtype):
                   workdir / f"config.json",
                   workdir / f"generation_utils.py"]
     urls = [
-        f"https://huggingface.co/baichuan-inc/{hf_name_ori}/resolve/main/configuration_baichuan.py",
-        f"https://huggingface.co/baichuan-inc/{hf_name_ori}/resolve/main/modeling_baichuan.py",
-        f"https://huggingface.co/baichuan-inc/{hf_name_ori}/resolve/main/config.json",
-        f"https://huggingface.co/baichuan-inc/{hf_name_ori}/resolve/main/generation_utils.py",
+        f"https://huggingface.co/baichuan-inc/{hf_name_ori}/raw/main/configuration_baichuan.py",
+        f"https://huggingface.co/baichuan-inc/{hf_name_ori}/raw/main/modeling_baichuan.py",
+        f"https://huggingface.co/baichuan-inc/{hf_name_ori}/raw/main/config.json",
+        f"https://huggingface.co/baichuan-inc/{hf_name_ori}/raw/main/generation_utils.py",
     ]
     for file_path, url in zip(file_paths, urls):
         if not file_path.is_file():
@@ -335,9 +424,9 @@ def test_against_chatglm(ours_kwargs, device, dtype):
                   workdir / f"modeling_chatglm.py", 
                   workdir / f"config.json"]
     urls = [
-        f"https://huggingface.co/THUDM/{hf_name_ori}/resolve/main/configuration_chatglm.py",
-        f"https://huggingface.co/THUDM/{hf_name_ori}/resolve/main/modeling_chatglm.py",
-        f"https://huggingface.co/THUDM/{hf_name_ori}/resolve/main/config.json",
+        f"https://huggingface.co/THUDM/{hf_name_ori}/raw/main/configuration_chatglm.py",
+        f"https://huggingface.co/THUDM/{hf_name_ori}/raw/main/modeling_chatglm.py",
+        f"https://huggingface.co/THUDM/{hf_name_ori}/raw/main/config.json",
     ]
     for file_path, url in zip(file_paths, urls):
         if not file_path.is_file():
@@ -393,7 +482,9 @@ def test_against_chatglm(ours_kwargs, device, dtype):
 @pytest.mark.parametrize(
     "ours_kwargs",
     [{"name": "yi-6b-chat-hf"}, {"name": "yi-6b-200k-hf"}, {"name": "yi-6b-hf"},
-     {"name": "yi-34b-chat-hf"}, {"name": "yi-34b-200k-hf"}, {"name": "yi-34b-hf"},],
+     {"name": "yi-34b-chat-hf"}, {"name": "yi-34b-200k-hf"}, {"name": "yi-34b-hf"},
+     {"name": "yi-9b-hf"}
+    ],
 )
 @pytest.mark.parametrize(
     ("device", "dtype"),

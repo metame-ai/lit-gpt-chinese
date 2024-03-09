@@ -36,6 +36,9 @@ class Tokenizer:
             for token in special_tokens:
                 self.special_token_dict[token] = n_words
                 n_words += 1
+        elif "internlm2" in self.model_name:
+            # https://huggingface.co/internlm/internlm2-chat-1_8b/blob/main/tokenizer_config.json
+            self._update_special_tokens(checkpoint_dir)
 
         self.special_token_inverse = {v: k for k, v in self.special_token_dict.items()}
 
@@ -74,6 +77,17 @@ class Tokenizer:
                     self.eos_id = self.eos_id[0]
         else:
             raise NotImplementedError
+
+    def _update_special_tokens(self, checkpoint_dir: Path) -> None:
+        special_tokens_path = checkpoint_dir / "tokenizer_config.json"
+        assert special_tokens_path.is_file(), f"tokenizer_config.json not found in {checkpoint_dir}"
+        with open(special_tokens_path) as fp:
+            config = json.load(fp)
+        token_id_dict = {}
+        for token_id, info in config["added_tokens_decoder"].items():
+            if info.get("special", False):
+                token_id_dict[info["content"]] = int(token_id)
+        self.special_token_dict = token_id_dict
 
     @property
     def vocab_size(self) -> int:

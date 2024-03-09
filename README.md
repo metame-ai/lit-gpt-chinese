@@ -53,7 +53,8 @@ Supports the following popular model checkpoints:
 | Chinese Model                                                                                | Model size                               | Reference                                                                                                                    |
 |--------------------------------------------------------------------------------------|------------------------------------------|------------------------------------------------------------------------------------------------------------------------------|
 | Qwen1.5                                    | {0.5,1.8,4,7,14,72}B                              | [Qwen1.5](https://github.com/QwenLM/Qwen1.5) |
-| 01-ai [Yi](tutorials/download_yi.md)                                   | 6B, 34B                              | [01-ai 2023](https://github.com/01-ai/Yi) |
+| InternLM2                                 | {1.8,7,20}B | [InternLM](https://github.com/InternLM/InternLM)        
+| 01-ai [Yi](tutorials/download_yi.md)                                   | 6B, 9B, 34B                              | [01-ai 2023](https://github.com/01-ai/Yi) |
 | Baichuan 2                                | 7B-Chat/Base, 13B-Chat/Base | [Baichuan 2](https://github.com/baichuan-inc/Baichuan2)                                         |
 | ChatGLM3                                 | 6B, 6B-Base, 6B-32k | [ChatGLM3](https://github.com/THUDM/ChatGLM3)                                         |
 | ChatGLM2                                 | 6B | [ChatGLM2-6B](https://github.com/THUDM/ChatGLM2-6B)        

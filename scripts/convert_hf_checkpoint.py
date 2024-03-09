@@ -112,6 +112,46 @@ def copy_weights_falcon(
         state_dict[to_name] = param
 
 
+def copy_weights_hf_internlm2(
+    config: Config,
+    state_dict: Dict[str, torch.Tensor],
+    hf_weights: Dict[str, Union[torch.Tensor, NotYetLoadedTensor]],
+    saver: Optional[incremental_save] = None,
+    dtype: Optional[torch.dtype] = None,
+    verbose: bool = True,
+) -> None:
+    weight_map = {
+        "model.tok_embeddings.weight": "transformer.wte.weight",
+        "model.layers.{}.attention_norm.weight": "transformer.h.{}.norm_1.weight",
+        "model.layers.{}.attention.wqkv.weight": "transformer.h.{}.attn.attn.weight",
+        "model.layers.{}.attention.wo.weight": "transformer.h.{}.attn.proj.weight",
+        "model.layers.{}.ffn_norm.weight": "transformer.h.{}.norm_2.weight",
+        # "transformer.rotary_pos_emb.inv_freq": None,
+        "model.layers.{}.feed_forward.w1.weight": "transformer.h.{}.mlp.fc_1.weight",
+        "model.layers.{}.feed_forward.w3.weight": "transformer.h.{}.mlp.fc_2.weight",
+        "model.layers.{}.feed_forward.w2.weight": "transformer.h.{}.mlp.proj.weight",
+        "model.norm.weight": "transformer.ln_f.weight",
+        "output.weight": "lm_head.weight",
+    }
+
+    for name, param in hf_weights.items():
+        if "model.layers" in name:
+            from_name, number = layer_template(name, 2)
+            to_name = weight_map[from_name]
+            if to_name is None:
+                continue
+            to_name = to_name.format(number)
+        else:
+            to_name = weight_map[name]
+            if to_name is None:
+                continue
+        param = load_param(param, name, dtype)
+
+        if saver is not None:
+            param = saver.store_early(param)
+        state_dict[to_name] = param
+
+
 def copy_weights_hf_chatglm2(
     config: Config,
     state_dict: Dict[str, torch.Tensor],
@@ -495,6 +535,8 @@ def convert_hf_checkpoint(
         copy_fn = partial(copy_weights_hf_baichuan2, config)
     elif config._mlp_class == "ChatGLM2MLP":
         copy_fn = partial(copy_weights_hf_chatglm2, config)
+    elif 'internlm2' in model_name:
+        copy_fn = partial(copy_weights_hf_internlm2, config)
     elif 'Qwen1.5' in model_name:
         # holder to reconstitute the split q, k, v
         qkv_weights = {}

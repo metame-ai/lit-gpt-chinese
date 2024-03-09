@@ -263,6 +263,29 @@ def encode(checkpoint_dir: Path, tokenizer: Tokenizer, prompt: str, device: torc
         encoded_prompt += tokenizer.encode(prompt, return_tensor=False)
         encoded_prompt += [tokenizer.token_to_id(f"<|assistant|>")]
         encoded_prompt = torch.tensor(encoded_prompt, dtype=torch.int, device=device)
+    elif re.search("internlm2", checkpoint_name):
+
+        start_id, end_id = tokenizer.token_to_id("<|im_start|>"), tokenizer.token_to_id("<|im_end|>")
+        new_line_ids = tokenizer.encode("\n", return_tensor=False)
+        
+        encoded_prompt = [tokenizer.bos_id]
+        meta_instruction = ("You are an AI assistant whose name is InternLM (书生·浦语).\n"
+        "- InternLM (书生·浦语) is a conversational language model that is developed by Shanghai AI Laboratory (上海人工智能实验室). It is designed to be helpful, honest, and harmless.\n"
+        "- InternLM (书生·浦语) can understand and communicate fluently in the language chosen by the user such as English and 中文.")
+        if meta_instruction:
+            _tmp = tokenizer.encode(f"""system\n{meta_instruction}""", return_tensor=False)
+            encoded_prompt += [start_id] + _tmp + [end_id] + new_line_ids
+        for item in history:
+            if item["role"] == "user":
+                encoded_prompt += [start_id] + tokenizer.encode(f"user\n{item['content']}", return_tensor=False) 
+                encoded_prompt += [end_id] + new_line_ids
+            elif item["role"] == "assistant":
+                encoded_prompt += [start_id] + tokenizer.encode(f"assistant\n{item['content']}", return_tensor=False)
+                encoded_prompt += [end_id] + new_line_ids
+        # prompt += f"""<|im_start|>user\n{query}<|im_end|>\n<|im_start|>assistant\n"""
+        encoded_prompt += [start_id] + tokenizer.encode(f"user\n{prompt}", return_tensor=False) + [end_id] + new_line_ids
+        encoded_prompt += [start_id] + tokenizer.encode(f"assistant\n", return_tensor=False)
+        encoded_prompt = torch.tensor(encoded_prompt, dtype=torch.int, device=device)
     else:
         encoded_prompt = tokenizer.encode(prompt, device=device)
     return encoded_prompt
@@ -519,6 +542,9 @@ def prompt_config(checkpoint_dir: Path, tokenizer: Tokenizer,
         system_prompt = "<start_of_turn>user\n{prompt}<end_of_turn>\n<start_of_turn>model\n"
         stop_tokens = ([tokenizer.eos_id],)
         return system_prompt, stop_tokens
+    
+    if re.search("internlm2", checkpoint_name):
+        return "{prompt}", ([tokenizer.eos_id], [tokenizer.token_to_id("<|im_end|>")],)
 
     # default format
     return "{prompt}", ([tokenizer.eos_id],)

@@ -1532,6 +1532,18 @@ for c in [yi_6b, yi_34b]:
         copy["hf_config"]["name"] = c["hf_config"]["name"].format(posfix)
         configs.append(copy)
 
+# Yi-9B
+# https://huggingface.co/01-ai/Yi-9B/blob/main/config.json
+yi_9b = deepcopy(yi_6b)
+yi_9b.update(dict(
+    name="yi-9b-hf",
+    hf_config=dict(org="01-ai", name="Yi-9B"),
+    n_layer=48,
+    norm_eps=1e-6,
+    rope_base=10000,
+))
+configs.append(yi_9b)
+
 ###############
 # THUDM chatglm 2
 ###############
@@ -1712,5 +1724,54 @@ for size in [0.5, 1.8, 4, 7, 14, 72]:
         _qwen["name"] = _qwen["name"].format(size, postfix)
         _qwen["hf_config"]["name"] = _qwen["hf_config"]["name"].format(size, postfix)
         configs.append(_qwen)
+
+        
+###############
+# InternLM2
+###############
+
+# https://huggingface.co/internlm/internlm2-chat-1_8b/blob/main/config.json
+internlm2_1_8b = dict(
+        name="internlm2{}-{}b",
+        hf_config=dict(org="interlm", name="internlm2{}-{}b"),
+        padded_vocab_size=92544,
+        n_layer=24,
+        n_head=16,
+        n_embd=2048,
+        block_size=32768,
+        n_query_groups=8,
+        rotary_percentage=1.0,
+        parallel_residual=False,
+        bias=False,
+        _norm_class="RMSNorm",
+        _mlp_class="LLaMAMLP",
+        intermediate_size=8192,
+        # https://huggingface.co/internlm/internlm2-chat-1_8b/blob/main/modeling_internlm2.py#L305
+        # NOTE: internml use dynamic rope scaling
+        rope_base=1000000,
+        norm_eps=1e-5,
+    )
+internlm2_param_dict = {
+    "7": {
+        "n_layer": 32,
+        "n_head": 32,
+        "n_embd": 4096,
+        "intermediate_size": 14336,
+    },
+    "20": {
+        "n_layer": 48,
+        "n_head": 48,
+        "n_embd": 6144,
+        "intermediate_size": 16384,
+    }
+}
+for mode in ["", "-chat"]:
+    for size in ["1_8", "7", "20"]:
+        copy = deepcopy(internlm2_1_8b)
+        copy["name"] = internlm2_1_8b["name"].format(mode, size)
+        copy["hf_config"]["name"] = internlm2_1_8b["hf_config"]["name"].format(mode, size)
+        _param = internlm2_param_dict.get(size, {})
+        copy.update(_param)
+        configs.append(copy)
 
 name_to_config = {config["name"]: config for config in configs}

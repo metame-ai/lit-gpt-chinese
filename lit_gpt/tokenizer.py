@@ -21,26 +21,6 @@ class Tokenizer:
         self.pad_id = 0
         self.special_token_dict = {}
         self.model_name = checkpoint_dir.name
-        if "chatglm2" in self.model_name:
-            # reference: https://huggingface.co/THUDM/chatglm2-6b/blob/main/tokenization_chatglm.py#L23
-            # https://huggingface.co/THUDM/chatglm2-6b/blob/main/tokenization_chatglm.py#L158
-            self.special_token_dict = {"[gMASK]": 64790, "sop": 64792}
-        elif "baichuan2" in self.model_name:
-            # "user_token_id": 195,
-            # "assistant_token_id": 196,
-            self.special_token_dict = {"<user>": 195, "<assistant>": 196}
-        elif "chatglm3" in self.model_name:
-            n_words = self.processor.vocab_size()
-            role_special_tokens = ["<|system|>", "<|user|>", "<|assistant|>", "<|observation|>"]
-            special_tokens = ["[MASK]", "[gMASK]", "[sMASK]", "sop", "eop"] + role_special_tokens
-            for token in special_tokens:
-                self.special_token_dict[token] = n_words
-                n_words += 1
-        elif "internlm2" in self.model_name:
-            # https://huggingface.co/internlm/internlm2-chat-1_8b/blob/main/tokenizer_config.json
-            self._update_special_tokens(checkpoint_dir)
-
-        self.special_token_inverse = {v: k for k, v in self.special_token_dict.items()}
 
         # some checkpoints have both files, `.model` takes precedence
         if (vocabulary_path := checkpoint_dir / "tokenizer.model").is_file():
@@ -77,6 +57,27 @@ class Tokenizer:
                     self.eos_id = self.eos_id[0]
         else:
             raise NotImplementedError
+
+        if "chatglm2" in self.model_name:
+            # reference: https://huggingface.co/THUDM/chatglm2-6b/blob/main/tokenization_chatglm.py#L23
+            # https://huggingface.co/THUDM/chatglm2-6b/blob/main/tokenization_chatglm.py#L158
+            self.special_token_dict = {"[gMASK]": 64790, "sop": 64792}
+        elif "baichuan2" in self.model_name:
+            # "user_token_id": 195,
+            # "assistant_token_id": 196,
+            self.special_token_dict = {"<user>": 195, "<assistant>": 196}
+        elif "chatglm3" in self.model_name:
+            n_words = self.processor.vocab_size()
+            role_special_tokens = ["<|system|>", "<|user|>", "<|assistant|>", "<|observation|>"]
+            special_tokens = ["[MASK]", "[gMASK]", "[sMASK]", "sop", "eop"] + role_special_tokens
+            for token in special_tokens:
+                self.special_token_dict[token] = n_words
+                n_words += 1
+        elif "internlm2" in self.model_name:
+            # https://huggingface.co/internlm/internlm2-chat-1_8b/blob/main/tokenizer_config.json
+            self._update_special_tokens(checkpoint_dir)
+
+        self.special_token_inverse = {v: k for k, v in self.special_token_dict.items()}
 
     def _update_special_tokens(self, checkpoint_dir: Path) -> None:
         special_tokens_path = checkpoint_dir / "tokenizer_config.json"
@@ -149,7 +150,12 @@ class Tokenizer:
             return torch.tensor(tokens, dtype=torch.int, device=device)
         return tokens
 
-    def decode(self, tensor: torch.Tensor) -> str:
+    def decode(self, tensor: torch.Tensor, show_special=False) -> str:
         tokens = [tensor.item()] if tensor.ndim == 0 else tensor.tolist()
+        if show_special:
+            specials = [(t, self.special_token_inverse[t]) for t in tokens 
+                        if t in self.special_token_dict.values()]
+            if len(specials):
+                print(set(specials))
         tokens = [t for t in tokens if t not in self.special_token_dict.values()]
         return self.processor.decode(tokens)

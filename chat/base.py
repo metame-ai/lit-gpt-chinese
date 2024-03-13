@@ -114,6 +114,7 @@ def main(
     compile: bool = False,
     max_seq_length: Optional[int] = 512,
     history_length: int = 10,
+    system_message: str = "",
 ) -> None:
     """Starts a conversation with a tuned GPT model.
 
@@ -174,7 +175,8 @@ def main(
     L.seed_everything(1234)
     history = []
     while True:
-        system_prompt, stop_tokens = prompt_config(checkpoint_dir, tokenizer, history)
+        system_prompt, stop_tokens = prompt_config(checkpoint_dir, tokenizer, 
+                                                   history, system_message)
         try:
             prompt = input(">> Prompt: ")
         except KeyboardInterrupt:
@@ -187,7 +189,8 @@ def main(
 
         encoded_prompt = encode(checkpoint_dir, tokenizer,
                                 system_prompt.format(prompt=prompt),
-                                fabric.device, history=history)
+                                fabric.device, history=history,
+                                system_message=system_message)
         y = generate(
             model, encoded_prompt, model.max_seq_length, temperature=temperature, top_k=top_k, stop_tokens=stop_tokens
         )
@@ -211,7 +214,9 @@ def main(
 
 
 def encode(checkpoint_dir: Path, tokenizer: Tokenizer, prompt: str, device: torch.device,
-           history: Optional[List] = None) -> torch.Tensor:
+           history: Optional[List] = None,
+           system_message: Optional[str] = None,
+    ) -> torch.Tensor:
     """Encodes a prompt into a tensor of token ids.
 
     Args:
@@ -251,17 +256,25 @@ def encode(checkpoint_dir: Path, tokenizer: Tokenizer, prompt: str, device: torc
     elif re.search("chatglm3", checkpoint_name):
         encoded_prompt = []
 
+        newline_token = tokenizer.encode("\n", return_tensor=False)
         user_id = tokenizer.token_to_id(f"<|user|>")
+
+        if len(system_message):
+            system_tokens = [tokenizer.token_to_id(f"<|system|>")]
+            sys_msg = tokenizer.encode(system_message, return_tensor=False)
+            new_tokens = system_tokens + newline_token + sys_msg
+            encoded_prompt += new_tokens
+
         metadata = ""
         for item in history:
             role = item["role"]
-            role_token = [tokenizer.token_to_id(f"<|{role}|>")]
+            role_token = [tokenizer.token_to_id(f"<|{role}|>")] + newline_token
             # role_token += tokenizer.encode(f"{metadata}\n", return_tensor=False)
             token = role_token + tokenizer.encode(item["content"], return_tensor=False)
             encoded_prompt += token
-        encoded_prompt += [user_id] + tokenizer.encode(f"\n", return_tensor=False)
+        encoded_prompt += [user_id] + newline_token
         encoded_prompt += tokenizer.encode(prompt, return_tensor=False)
-        encoded_prompt += [tokenizer.token_to_id(f"<|assistant|>")]
+        encoded_prompt += [tokenizer.token_to_id(f"<|assistant|>")] + newline_token
         encoded_prompt = torch.tensor(encoded_prompt, dtype=torch.int, device=device)
     elif re.search("internlm2", checkpoint_name):
 
@@ -292,7 +305,9 @@ def encode(checkpoint_dir: Path, tokenizer: Tokenizer, prompt: str, device: torc
 
 
 def prompt_config(checkpoint_dir: Path, tokenizer: Tokenizer,
-                  history: Optional[List] = None) -> Tuple[str, Tuple[List[int], ...]]:
+                  history: Optional[List] = None,
+                  system_message: str = "",
+    ) -> Tuple[str, Tuple[List[int], ...]]:
     checkpoint_name = str(checkpoint_dir)
     if history is None:
         history = []
@@ -525,7 +540,9 @@ def prompt_config(checkpoint_dir: Path, tokenizer: Tokenizer,
         {prompt}<|im_end|>
         <|im_start|>assistant
         '''
-        system_prompt = "'<|im_start|>system\nYou are a helpful assistant<|im_end|>\n"
+        if not len(system_message):
+            system_message = "You are a helpful assistant"
+        system_prompt = f"<|im_start|>system\n{system_message}<|im_end|>\n"
         for item in history:
             if item["role"] == "user":
                 system_prompt += f"<|im_start|>user\n{item['content']}<|im_end|>\n"
@@ -538,6 +555,7 @@ def prompt_config(checkpoint_dir: Path, tokenizer: Tokenizer,
         )
         stop_tokens = ([tokenizer.token_to_id("<|im_end|>")],
                        [tokenizer.eos_id], [tokenizer.bos_id])
+        return system_prompt, stop_tokens
     if re.search(r"gemma.*-it", checkpoint_name):
         system_prompt = "<start_of_turn>user\n{prompt}<end_of_turn>\n<start_of_turn>model\n"
         stop_tokens = ([tokenizer.eos_id],)

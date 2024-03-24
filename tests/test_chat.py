@@ -1,6 +1,5 @@
 # Copyright Lightning AI. Licensed under the Apache License 2.0, see LICENSE file.
-
-import json
+import re
 import subprocess
 import sys
 from contextlib import redirect_stderr, redirect_stdout
@@ -11,6 +10,11 @@ from unittest.mock import ANY, MagicMock, Mock, call, patch
 
 import pytest
 import torch
+import yaml
+from lightning.fabric import Fabric
+
+import litgpt.chat.base as chat
+import litgpt.generate.base as generate
 
 
 @pytest.mark.parametrize(
@@ -25,9 +29,6 @@ import torch
     ],
 )
 def test_generate(monkeypatch, generated, stop_tokens, expected):
-    import chat.base as chat
-    import generate.base as generate
-
     input_idx = torch.tensor([5, 3])
     max_returned_tokens = len(input_idx) + 8
     model = MagicMock()
@@ -54,10 +55,6 @@ def test_generate(monkeypatch, generated, stop_tokens, expected):
 
 @pytest.mark.parametrize("tokenizer_backend", ["huggingface", "sentencepiece"])
 def test_decode(tokenizer_backend):
-    from lightning.fabric import Fabric
-
-    import chat.base as chat
-
     class Tokenizer:
         backend = tokenizer_backend
         id2token = {1: "foo ", 2: "bar ", 3: "baz "}
@@ -78,17 +75,23 @@ def test_decode(tokenizer_backend):
     assert out.getvalue() == "baz bar foo "
 
 
-@patch("chat.base.input")
+@patch("litgpt.chat.base.input")
 @pytest.mark.parametrize("stop_iteration", [KeyboardInterrupt, ""])
 def test_main(mocked_input, stop_iteration, fake_checkpoint_dir, monkeypatch, tensor_like):
-    import chat.base as chat
-
     # these values will be iteratively provided for each `input()` call
     mocked_input.side_effect = ["Hello", stop_iteration]
 
-    config_path = fake_checkpoint_dir / "lit_config.json"
-    config = {"block_size": 128, "vocab_size": 50, "n_layer": 2, "n_head": 4, "n_embd": 8, "rotary_percentage": 1}
-    config_path.write_text(json.dumps(config))
+    config_path = fake_checkpoint_dir / "model_config.yaml"
+    config = {
+        "name": "Llama 3",
+        "block_size": 128,
+        "vocab_size": 50,
+        "n_layer": 2,
+        "n_head": 4,
+        "n_embd": 8,
+        "rotary_percentage": 1,
+    }
+    config_path.write_text(yaml.dump(config))
 
     load_mock = Mock()
     load_mock.return_value = load_mock
@@ -112,14 +115,17 @@ def test_main(mocked_input, stop_iteration, fake_checkpoint_dir, monkeypatch, te
     assert generate_mock.mock_calls == [
         call(ANY, tensor_like, 128, temperature=2.0, top_k=2, stop_tokens=([tokenizer_mock.return_value.eos_id],))
     ]
-    # # only the generated result is printed to stdout
-    assert out.getvalue() == ">> Reply: foo bar baz\n"
-
-    assert "'padded_vocab_size': 512, 'n_layer': 2, 'n_head': 4" in err.getvalue()
+    # only the generated result is printed to stdout
+    assert re.match("Now chatting with Llama 3.*>> .*Reply: foo bar baz", out.getvalue(), re.DOTALL)
 
 
-def test_cli():
-    cli_path = Path(__file__).parent.parent / "chat" / "base.py"
-    output = subprocess.check_output([sys.executable, cli_path, "-h"])
+@pytest.mark.parametrize("mode", ["file", "entrypoint"])
+def test_cli(mode):
+    if mode == "file":
+        cli_path = Path(__file__).parent.parent / "litgpt/chat/base.py"
+        args = [sys.executable, cli_path, "-h"]
+    else:
+        args = ["litgpt", "chat", "-h"]
+    output = subprocess.check_output(args)
     output = str(output.decode())
     assert "Starts a conversation" in output

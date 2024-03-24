@@ -16,7 +16,6 @@ from lightning.fabric.utilities.imports import _IS_WINDOWS, _TORCH_GREATER_EQUAL
 wd = Path(__file__).parent.parent.resolve()
 sys.path.append(str(wd))
 
-import lit_gpt.config as config_module
 
 @torch.inference_mode()
 @pytest.mark.parametrize(
@@ -44,8 +43,8 @@ import lit_gpt.config as config_module
 )
 def test_against_interlm2(ours_kwargs, device, dtype):
     import importlib
-    from lit_gpt import GPT, Config
-    from scripts.convert_hf_checkpoint import copy_weights_hf_internlm2
+    from litgpt import GPT, Config
+    from litgpt.scripts.convert_hf_checkpoint import copy_weights_hf_internlm2
 
     torch.set_default_dtype(dtype)
 
@@ -135,8 +134,8 @@ def test_against_qwen1_5(ours_kwargs, device, dtype):
     from transformers.models.qwen2.configuration_qwen2 import Qwen2Config
     from transformers.models.qwen2.modeling_qwen2 import Qwen2ForCausalLM
 
-    from lit_gpt import GPT, Config
-    from scripts.convert_hf_checkpoint import copy_weights_hf_qwen2
+    from litgpt import GPT, Config
+    from litgpt.scripts.convert_hf_checkpoint import copy_weights_hf_qwen2
 
     torch.set_default_dtype(dtype)
 
@@ -208,8 +207,8 @@ def test_against_qwen1_5(ours_kwargs, device, dtype):
 )
 def test_against_baichuan7b(ours_kwargs, device, dtype):
     import importlib
-    from lit_gpt import GPT, Config
-    from scripts.convert_hf_checkpoint import copy_weights_hf_baichuan2
+    from litgpt import GPT, Config
+    from litgpt.scripts.convert_hf_checkpoint import copy_weights_hf_baichuan2
     import transformers
 
     torch.set_default_dtype(dtype)
@@ -304,8 +303,8 @@ def test_against_baichuan7b(ours_kwargs, device, dtype):
 )
 def test_against_baichuan13b(ours_kwargs, device, dtype):
     import importlib
-    from lit_gpt import GPT, Config
-    from scripts.convert_hf_checkpoint import copy_weights_hf_baichuan2
+    from litgpt import GPT, Config
+    from litgpt.scripts.convert_hf_checkpoint import copy_weights_hf_baichuan2
     import transformers
 
     torch.set_default_dtype(dtype)
@@ -405,8 +404,8 @@ def test_against_baichuan13b(ours_kwargs, device, dtype):
 )
 def test_against_chatglm(ours_kwargs, device, dtype):
     import importlib
-    from lit_gpt import GPT, Config
-    from scripts.convert_hf_checkpoint import copy_weights_hf_chatglm2
+    from litgpt import GPT, Config
+    from litgpt.scripts.convert_hf_checkpoint import copy_weights_hf_chatglm2
 
     torch.set_default_dtype(dtype)
 
@@ -506,8 +505,8 @@ def test_against_yi(ours_kwargs, device, dtype):
     from transformers.models.llama.configuration_llama import LlamaConfig
     from transformers.models.llama.modeling_llama import LlamaForCausalLM
 
-    from lit_gpt import GPT, Config
-    from scripts.convert_hf_checkpoint import copy_weights_hf_llama
+    from litgpt import GPT, Config
+    from litgpt.scripts.convert_hf_checkpoint import copy_weights_hf_llama
 
     torch.set_default_dtype(dtype)
 

@@ -2,24 +2,18 @@
 
 import os
 import re
-import sys
 from pathlib import Path
 
 import pytest
 from transformers import AutoTokenizer
 from transformers.utils import cached_file
 
-# support running without installing as a package
-wd = Path(__file__).parent.parent.resolve()
-sys.path.append(str(wd))
-
-import lit_gpt.config as config_module
+import litgpt.config as config_module
+from litgpt.tokenizer import Tokenizer
 
 
 @pytest.mark.parametrize("config", config_module.configs, ids=[c["hf_config"]["name"] for c in config_module.configs])
 def test_tokenizer_against_hf(config):
-    from lit_gpt.tokenizer import Tokenizer
-
     access_token = os.getenv("HF_TOKEN")
 
     config = config_module.Config(**config)
@@ -92,7 +86,5 @@ def test_tokenizer_against_hf(config):
 
 
 def test_tokenizer_input_validation():
-    from lit_gpt.tokenizer import Tokenizer
-
     with pytest.raises(NotADirectoryError, match="The checkpoint directory does not exist"):
         Tokenizer("cocofruit")

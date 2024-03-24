@@ -3,13 +3,14 @@ __pycache__
 .DS_Store
 *.egg-info
 build
+dist
 .venv
 .vscode
 
 # data
 data
 datasets
-!lit_gpt/data
+!litgpt/data
 !tests/data
 checkpoints
 out

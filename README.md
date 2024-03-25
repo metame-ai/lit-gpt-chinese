@@ -23,7 +23,7 @@
 &nbsp;
 ## LitGPT supports
 
-✅ &nbsp; Popular chinese models: Qwen1.5, InternLM2, Yi, Baichuan2, ChatGLM2/3.
+✅ &nbsp; Popular chinese models: Qwen1.5, InternLM2, Yi, Baichuan2, ChatGLM2/3. **安装及使用示例参考[wechat-me (chinese tutorial)](https://github.com/metame-ai/wechat-me?tab=readme-ov-file#%E5%AE%89%E8%A3%85litgpt-chinese)**
 
 ✅ &nbsp;[The latest model weights](tutorials/download_model_weights.md): Gemma, Mistral, Mixtral, Phi 2, Llama 2, Falcon, CodeLlama, and [many more](tutorials/download_model_weights.md).
 

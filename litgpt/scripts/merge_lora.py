@@ -9,7 +9,7 @@ import torch
 import yaml
 
 from litgpt.lora import GPT, Config, lora_filter, merge_lora_weights
-from litgpt.utils import CLI, check_valid_checkpoint_dir, lazy_load
+from litgpt.utils import CLI, check_valid_checkpoint_dir
 
 
 def merge_lora(
@@ -44,16 +44,16 @@ def merge_lora(
     fabric = L.Fabric(devices=1, precision=precision, accelerator="cpu")
     config = Config.from_file(checkpoint_dir / "model_config.yaml", **lora_params)
 
-    with fabric.init_module(empty_init=True):
+    with fabric.init_module(), torch.device("meta"):
         model = GPT(config)
 
     lora_path = checkpoint_dir / "lit_model.pth.lora"
-    pretrained_checkpoint = lazy_load(pretrained_checkpoint_dir / "lit_model.pth")
-    lora_checkpoint = lazy_load(lora_path)
+    pretrained_checkpoint = torch.load(str(pretrained_checkpoint_dir / "lit_model.pth"), mmap=True)
+    lora_checkpoint = torch.load(str(lora_path), mmap=True)
 
     # Merge LoRA weights into the base model
     pretrained_checkpoint.update(lora_checkpoint.get("model", lora_checkpoint))
-    model.load_state_dict(pretrained_checkpoint)
+    model.load_state_dict(pretrained_checkpoint, assign=True)
     merge_lora_weights(model)
     state_dict = {k.replace("linear.", ""): v for k, v in model.state_dict().items() if not lora_filter(k, v)}
 

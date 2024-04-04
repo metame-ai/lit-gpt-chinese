@@ -43,7 +43,7 @@ pip install -e '.[all]'
 &nbsp;
 ## Pretrain LLMs
 
-Finetuning LLMs requires substantial compute resources and time commitment. For that reason, most researchers and practitioners prefer to skip this step and continue with the Download pretrained model weights section instead. 
+Pretraining LLMs requires substantial compute resources and time commitment. For that reason, most researchers and practitioners prefer to skip this step and continue with the *Download pretrained model weights* section instead. 
 
 However, if you feel adventurous and want to pretrain your own LLM, here's how.
 
@@ -125,6 +125,7 @@ litgpt pretrain --help
 
 **More information and additional resources**
 
+- [tutorials/pretraimd](./pretrain.md): General information about pretraining in LitGPT
 - [tutorials/pretrain_tinyllama](./pretrain_tinyllama.md): A tutorial for finetuning a 1.1B TinyLlama model on 3 trillion tokens
 - [config_hub/pretrain](../config_hub/pretrain): Pre-made config files for pretraining that work well out of the box
 - Project templates in reproducible environments with multi-GPU and multi-node support:

@@ -20,7 +20,7 @@ class Tokenizer:
 
         self.pad_id = 0
         self.special_token_dict = {}
-        self.model_name = checkpoint_dir.name
+        self.model_name = checkpoint_dir.name.lower()
 
         # some checkpoints have both files, `.model` takes precedence
         if (vocabulary_path := checkpoint_dir / "tokenizer.model").is_file():
@@ -44,6 +44,8 @@ class Tokenizer:
                 self.bos_id = self.token_to_id(bos_token) if bos_token is not None else None
                 eos_token = config.get("eos_token")
                 self.eos_id = self.token_to_id(eos_token) if eos_token is not None else None
+                pad_token = config.get("pad_token")
+                self.pad_id = self.token_to_id(pad_token) if pad_token is not None else None
             if (special_tokens_path := checkpoint_dir / "generation_config.json").is_file():
                 with open(special_tokens_path) as fp:
                     config = json.load(fp)
@@ -51,6 +53,8 @@ class Tokenizer:
                     self.bos_id = config.get("bos_token_id")
                 if self.eos_id is None:
                     self.eos_id = config.get("eos_token_id")
+                if self.pad_id is None:
+                    self.pad_id = config.get("pad_token_id")
                 # NOTE: some checkpoints have a list of eos tokens
                 # e.g. https://huggingface.co/Qwen/Qwen1.5-1.8B-Chat/blob/main/generation_config.json
                 if isinstance(self.eos_id, list):
@@ -61,11 +65,11 @@ class Tokenizer:
         if "chatglm2" in self.model_name:
             # reference: https://huggingface.co/THUDM/chatglm2-6b/blob/main/tokenization_chatglm.py#L23
             # https://huggingface.co/THUDM/chatglm2-6b/blob/main/tokenization_chatglm.py#L158
-            self.special_token_dict = {"[gMASK]": 64790, "sop": 64792}
+            # "<s>": 1, "</s>": 2, "<unk>": 0
+            self.special_token_dict = {"[gMASK]": 64790, "sop": 64792,} 
         elif "baichuan2" in self.model_name:
-            # "user_token_id": 195,
-            # "assistant_token_id": 196,
-            self.special_token_dict = {"<user>": 195, "<assistant>": 196}
+            # "user_token_id": 195, "assistant_token_id": 196,
+            self.special_token_dict = {"<user>": 195, "<assistant>": 196, "<s>": 1, "</s>": 2, "<unk>": 0}
         elif "chatglm3" in self.model_name:
             n_words = self.processor.vocab_size()
             role_special_tokens = ["<|system|>", "<|user|>", "<|assistant|>", "<|observation|>"]
@@ -74,9 +78,21 @@ class Tokenizer:
                 self.special_token_dict[token] = n_words
                 n_words += 1
         elif "internlm2" in self.model_name:
+            # https://huggingface.co/internlm/internlm2-1_8b/blob/main/tokenizer_config.json
+            if 'chat' not in self.model_name.lower():
+                _tokens_pair = [("<s>", 1), ("</s>", 2), ("<unk>", 0)]
+                for token, id_ in _tokens_pair:
+                    self.special_token_dict[token] = id_
             # https://huggingface.co/internlm/internlm2-chat-1_8b/blob/main/tokenizer_config.json
             self._update_special_tokens(checkpoint_dir)
             self.use_bos = True
+            self.pad_id = 2
+        elif re.search(r"yi-.*b", self.model_name.lower()):
+            # https://huggingface.co/01-ai/Yi-6B/blob/main/generation_config.json
+            _tokens_pair = [("<|startoftext|>", 1), ("<|endoftext|>", 2), ("<unk>", 0)]
+            for token, id_ in _tokens_pair:
+                self.special_token_dict[token] = id_
+            self._update_special_tokens(checkpoint_dir)
 
         self.special_token_inverse = {v: k for k, v in self.special_token_dict.items()}
         self.special_token_expression = "|".join(
@@ -89,10 +105,10 @@ class Tokenizer:
         with open(special_tokens_path) as fp:
             config = json.load(fp)
         token_id_dict = {}
-        for token_id, info in config["added_tokens_decoder"].items():
+        for token_id, info in config.get("added_tokens_decoder", {}).items():
             if info.get("special", False):
                 token_id_dict[info["content"]] = int(token_id)
-        self.special_token_dict = token_id_dict
+        self.special_token_dict.update(token_id_dict)
 
     @property
     def vocab_size(self) -> int:

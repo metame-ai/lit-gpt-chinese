@@ -733,11 +733,13 @@ class GptNeoxMLP(litgpt.model.GptNeoxMLP):
 
 
 class LLaMAMLP(litgpt.model.LLaMAMLP):
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Config, intermediate_size: Optional[int] = None) -> None:
         nn.Module.__init__(self)
+        if intermediate_size is None:
+            intermediate_size = config.intermediate_size
         self.fc_1 = LoRALinear(
             config.n_embd,
-            config.intermediate_size,
+            intermediate_size,
             bias=config.bias,
             r=(config.lora_r if config.lora_mlp else 0),
             lora_alpha=config.lora_alpha,
@@ -745,14 +747,14 @@ class LLaMAMLP(litgpt.model.LLaMAMLP):
         )
         self.fc_2 = LoRALinear(
             config.n_embd,
-            config.intermediate_size,
+            intermediate_size,
             bias=config.bias,
             r=(config.lora_r if config.lora_mlp else 0),
             lora_alpha=config.lora_alpha,
             lora_dropout=config.lora_dropout,
         )
         self.proj = LoRALinear(
-            config.intermediate_size,
+            intermediate_size,
             config.n_embd,
             bias=config.bias,
             r=(config.lora_r if config.lora_mlp else 0),
@@ -844,6 +846,39 @@ class LLaMAMoE(litgpt.model.LLaMAMoE):
         mapping = {"gate.weight": "gate.linear.weight"}
         state_dict = map_old_state_dict_weights(state_dict, mapping, prefix)
         super()._load_from_state_dict(state_dict, prefix, *args, **kwargs)
+
+
+class Qwen2MoE(litgpt.model.Qwen2MoE):
+    def __init__(self, config: Config) -> None:
+        nn.Module.__init__(self)
+
+        self.num_experts = config.n_expert
+        self.top_k = config.n_expert_per_token
+        self.norm_topk_prob = False
+
+        # gating
+        self.gate = LoRALinear(
+            config.n_embd,
+            config.n_expert,
+            bias=False,
+            r=(config.lora_r if config.lora_mlp else 0),
+            lora_alpha=config.lora_alpha,
+            lora_dropout=config.lora_dropout,
+        )
+        self.experts = nn.ModuleList(
+                [LLaMAMLP(config, intermediate_size=config.moe_intermediate_size) 
+                 for _ in range(self.num_experts)]
+        )
+
+        self.shared_expert = LLaMAMLP(config, intermediate_size=config.shared_expert_intermediate_size)
+        self.shared_expert_gate = LoRALinear(
+            config.n_embd,
+            1,
+            bias=False,
+            r=(config.lora_r if config.lora_mlp else 0),
+            lora_alpha=config.lora_alpha,
+            lora_dropout=config.lora_dropout,
+        )
 
 
 def merge_lora_weights(model: GPT) -> None:

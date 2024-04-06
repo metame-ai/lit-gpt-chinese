@@ -370,16 +370,32 @@ def copy_weights_hf_qwen2(
         "model.norm.bias": "transformer.ln_f.bias",
         "lm_head.weight": "lm_head.weight",
     }
-    weight_map.update({
-        "model.layers.{}.mlp.gate_proj.weight": "transformer.h.{l}.mlp.fc_1.weight",
-        "model.layers.{}.mlp.up_proj.weight": "transformer.h.{l}.mlp.fc_2.weight",
-        "model.layers.{}.mlp.down_proj.weight": "transformer.h.{l}.mlp.proj.weight",
-    })
+    if config.mlp_class_name == "Qwen2MoE":
+        weight_map.update(
+            {
+                "model.layers.{}.mlp.gate.weight": "transformer.h.{l}.mlp.gate.weight",
+                "model.layers.{}.mlp.shared_expert_gate.weight": "transformer.h.{l}.mlp.shared_expert_gate.weight",
+                "model.layers.{}.mlp.shared_expert.gate_proj.weight": "transformer.h.{l}.mlp.shared_expert.fc_1.weight",
+                "model.layers.{}.mlp.shared_expert.up_proj.weight": "transformer.h.{l}.mlp.shared_expert.fc_2.weight",
+                "model.layers.{}.mlp.shared_expert.down_proj.weight": "transformer.h.{l}.mlp.shared_expert.proj.weight",
+                "model.layers.{}.mlp.experts.{}.gate_proj.weight": "transformer.h.{l}.mlp.experts.{e}.fc_1.weight",
+                "model.layers.{}.mlp.experts.{}.up_proj.weight": "transformer.h.{l}.mlp.experts.{e}.fc_2.weight",
+                "model.layers.{}.mlp.experts.{}.down_proj.weight": "transformer.h.{l}.mlp.experts.{e}.proj.weight",
+            }
+        )
+    else:
+        weight_map.update({
+            "model.layers.{}.mlp.gate_proj.weight": "transformer.h.{l}.mlp.fc_1.weight",
+            "model.layers.{}.mlp.up_proj.weight": "transformer.h.{l}.mlp.fc_2.weight",
+            "model.layers.{}.mlp.down_proj.weight": "transformer.h.{l}.mlp.proj.weight",
+        })
 
     for name, param in hf_weights.items():
         if "model.layers" in name:
             from_name, l = layer_template(name, 2)
             e = None
+            if "mlp.experts" in name:
+                from_name, e = layer_template(from_name, 5)
             qkv = qkv_weights.setdefault(l, defaultdict(dict))
             if any(w in from_name for w in ("q_proj", "k_proj", "v_proj")):
                 weight_name, weight_type = from_name.split(".")[-2:]

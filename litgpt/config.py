@@ -54,7 +54,8 @@ class Config:
     shared_attention_norm: bool = False
     norm_class_name: Literal["LayerNorm", "RMSNorm"] = "LayerNorm"
     norm_eps: float = 1e-5
-    mlp_class_name: Literal["GptNeoxMLP", "LLaMAMLP", "GemmaMLP", "LLaMAMoE", "ChatGLM2MLP"] = "GptNeoxMLP"
+    mlp_class_name: Literal["GptNeoxMLP", "LLaMAMLP", "GemmaMLP", 
+                            "LLaMAMoE", "ChatGLM2MLP", "Qwen2MoE"] = "GptNeoxMLP"
     gelu_approximate: str = "none"
     intermediate_size: Optional[int] = None
     rope_condense_ratio: int = 1
@@ -71,6 +72,10 @@ class Config:
     lm_head_type: str = "linear"
     # "rope" or "alibi"
     position_emb_type: str = "rope"
+
+    # setting related to Qwen2MoE
+    moe_intermediate_size: Optional[int] = None
+    shared_expert_intermediate_size: Optional[int] = None
 
     def __post_init__(self):
         if not self.name:
@@ -1735,6 +1740,32 @@ for size in [0.5, 1.8, 4, 7, 14, 72]:
         _qwen["hf_config"]["name"] = _qwen["hf_config"]["name"].format(size, postfix)
         configs.append(_qwen)
 
+
+# https://huggingface.co/Qwen/Qwen1.5-MoE-A2.7B-Chat/blob/main/config.json
+qwen1_5_moe = dict(
+        name="Qwen1.5-MoE-A2.7B-Chat",
+        hf_config=dict(org="Qwen", name="Qwen1.5-MoE-A2.7B-Chat"),
+        block_size=32768,
+        padded_vocab_size=151936,
+        bias=False,
+        n_layer=24,
+        n_head=16,
+        n_embd=2048,
+        add_qkv_bias=True,
+        rotary_percentage=1,
+        intermediate_size=5632,
+        parallel_residual=False,
+        norm_eps=1e-6,
+        norm_class_name="RMSNorm",
+        mlp_class_name="Qwen2MoE",
+        n_expert = 60,
+        n_expert_per_token = 4,
+        moe_intermediate_size = 1408,
+        shared_expert_intermediate_size = 5632,
+        rope_base=1000000,
+    )
+
+configs.append(qwen1_5_moe)
         
 ###############
 # InternLM2
@@ -1743,7 +1774,7 @@ for size in [0.5, 1.8, 4, 7, 14, 72]:
 # https://huggingface.co/internlm/internlm2-chat-1_8b/blob/main/config.json
 internlm2_1_8b = dict(
         name="internlm2{}-{}b",
-        hf_config=dict(org="interlm", name="internlm2{}-{}b"),
+        hf_config=dict(org="internlm", name="internlm2{}-{}b"),
         padded_vocab_size=92544,
         n_layer=24,
         n_head=16,

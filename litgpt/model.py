@@ -367,11 +367,13 @@ class GptNeoxMLP(nn.Module):
 
 
 class LLaMAMLP(nn.Module):
-    def __init__(self, config: Config) -> None:
+    def __init__(self, config: Config, intermediate_size: Optional[int] = None) -> None:
         super().__init__()
-        self.fc_1 = nn.Linear(config.n_embd, config.intermediate_size, bias=config.bias)
-        self.fc_2 = nn.Linear(config.n_embd, config.intermediate_size, bias=config.bias)
-        self.proj = nn.Linear(config.intermediate_size, config.n_embd, bias=config.bias)
+        if intermediate_size is None:
+            intermediate_size = config.intermediate_size
+        self.fc_1 = nn.Linear(config.n_embd, intermediate_size, bias=config.bias)
+        self.fc_2 = nn.Linear(config.n_embd, intermediate_size, bias=config.bias)
+        self.proj = nn.Linear(intermediate_size, config.n_embd, bias=config.bias)
 
         self.config = config
 
@@ -457,6 +459,45 @@ class LLaMAMoE(nn.Module):
         for mask, expert in zip(masks, self.experts):
             token_idx, expert_idx = torch.where(mask)
             y[token_idx] += probs[token_idx, expert_idx, None] * expert(x[token_idx])
+        return y.view(B, T, C)
+
+
+class Qwen2MoE(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.num_experts = config.n_expert
+        self.top_k = config.n_expert_per_token
+        self.norm_topk_prob = False
+
+        # gating
+        self.gate = nn.Linear(config.n_embd, config.n_expert, bias=False)
+        self.experts = nn.ModuleList(
+                [LLaMAMLP(config, intermediate_size=config.moe_intermediate_size) 
+                 for _ in range(self.num_experts)]
+        )
+
+        self.shared_expert = LLaMAMLP(config, intermediate_size=config.shared_expert_intermediate_size)
+        self.shared_expert_gate = torch.nn.Linear(config.n_embd, 1, bias=False)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """ """
+        B, T, C = x.size()  # batch size, sequence length, embedding dimensionality (n_embd)
+        x = x.view(-1, C)  # (B*T, C)
+        router = self.gate(x)  # (B*T, n_expert)
+        probs = router.softmax(dim=1, dtype=torch.float).to(dtype=x.dtype)
+        probs, indices = torch.topk(probs, self.top_k)  # (B*T, n_expert_per_token)
+        if self.norm_topk_prob:
+            probs /= probs.sum(dim=1, keepdim=True)
+        masks = indices.unsqueeze(-1) == torch.arange(self.num_experts, device=x.device)
+        masks = masks.permute(2, 0, 1)  # (n_expert, B*T, n_expert_per_token)
+        y = torch.zeros_like(x)  # (B*T, C)
+        for mask, expert in zip(masks, self.experts):
+            token_idx, expert_idx = torch.where(mask)
+            y[token_idx] += probs[token_idx, expert_idx, None] * expert(x[token_idx])
+
+        shared_x = self.shared_expert(x)
+        shared_x = F.sigmoid(self.shared_expert_gate(x)) * shared_x
+        y += shared_x
         return y.view(B, T, C)
 
 

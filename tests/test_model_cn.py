@@ -107,6 +107,86 @@ def test_against_interlm2(ours_kwargs, device, dtype):
     theirs_y = theirs_model(x)["logits"].to(dtype)  # HF converts logits to float
     torch.testing.assert_close(ours_y, theirs_y)
 
+
+@torch.inference_mode()
+@pytest.mark.parametrize(
+    "ours_kwargs",
+    [{"name": "Qwen1.5-MoE-A2.7B-Chat"}],
+)
+@pytest.mark.parametrize(
+    ("device", "dtype"),
+    [
+        (torch.device("cpu"), torch.float32),
+        pytest.param(
+            torch.device("cuda"),
+            torch.float16,
+            marks=[
+                # the reference does softmax upscaled to fp32 during attention. additionally, the final layernorm input
+                # is slightly different
+                pytest.mark.xfail(raises=AssertionError, strict=False),
+                RunIf(min_cuda_gpus=1),
+            ],
+        ),
+    ],
+)
+def test_against_qwen1_5_moe(ours_kwargs, device, dtype):
+    from transformers.models.qwen2_moe.configuration_qwen2_moe import Qwen2MoeConfig
+    from transformers.models.qwen2_moe.modeling_qwen2_moe import Qwen2MoeForCausalLM
+
+    from litgpt import GPT, Config
+    from litgpt.scripts.convert_hf_checkpoint import copy_weights_hf_qwen2
+
+    torch.set_default_dtype(dtype)
+
+    ours_config = Config.from_name(
+        padded_vocab_size=10000, n_layer=2, n_head=8, 
+        n_embd=32, intermediate_size=88, 
+        moe_intermediate_size=22, n_expert=4, n_expert_per_token=2, 
+        shared_expert_intermediate_size = 88,
+        **ours_kwargs
+    )
+    T = 5
+
+    repo_id = f'{ours_config.hf_config["org"]}/{ours_config.hf_config["name"]}'
+    url = f"https://huggingface.co/{repo_id}/raw/main/config.json"
+    config_path = f"/tmp/{repo_id.split('/')[-1]}.json"
+    if not os.path.isfile(config_path):
+        urlretrieve(url=url, filename=config_path)
+
+    with open(config_path, "r") as f:
+        hf_config_dict = json.load(f)
+    hf_config_dict.update(
+        {
+            "vocab_size": ours_config.padded_vocab_size, 
+            "num_hidden_layers": ours_config.n_layer,
+            "num_attention_heads": ours_config.n_head,
+            "hidden_size": ours_config.n_embd,
+            "intermediate_size": ours_config.intermediate_size,
+            "num_key_value_heads": ours_config.n_query_groups,
+            "torch_dtype": dtype,
+            "moe_intermediate_size": ours_config.moe_intermediate_size,
+            "shared_expert_intermediate_size": ours_config.shared_expert_intermediate_size,
+            "num_experts": ours_config.n_expert,
+            "num_experts_per_tok": ours_config.n_expert_per_token,
+        }
+    )
+
+    theirs_config = Qwen2MoeConfig(**hf_config_dict)
+    theirs_model = Qwen2MoeForCausalLM(theirs_config).to(device)
+    theirs_state_dict = theirs_model.state_dict()
+    state_dict = {}
+    copy_weights_hf_qwen2(ours_config, {}, state_dict, theirs_state_dict)
+    ours_model = GPT(ours_config).to(device)
+    ours_model.load_state_dict(state_dict)
+
+    # test end to end
+    x = torch.tensor([[9856, 23, 491, 1536, 304]], dtype=torch.int32, device=device)
+    assert x.size(1) == T
+    ours_y = ours_model(x)
+    theirs_y = theirs_model(x)["logits"].to(dtype)  # HF converts logits to float
+    torch.testing.assert_close(ours_y, theirs_y)
+
+
 @torch.inference_mode()
 @pytest.mark.parametrize(
     "ours_kwargs",

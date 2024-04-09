@@ -150,6 +150,7 @@ def main(
         state_dict = merge_lora(checkpoint_dir, save_merged_lora=save_merged_lora)
     else:
         check_valid_checkpoint_dir(checkpoint_dir)
+        merge_lora(checkpoint_dir)
 
     config = Config.from_file(checkpoint_dir / "model_config.yaml")
 

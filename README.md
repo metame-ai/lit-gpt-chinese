@@ -130,7 +130,6 @@ litgpt chat \
 
 &nbsp;    
 
-✅ &nbsp; Popular chinese models: Qwen1.5, InternLM2, Yi, Baichuan2, ChatGLM2/3. **安装及使用示例参考[wechat-me (chinese tutorial)](https://github.com/metame-ai/wechat-me?tab=readme-ov-file#%E5%AE%89%E8%A3%85litgpt-chinese)**
 
 > [!NOTE]
 > **[Read the full docs](tutorials/0_to_litgpt.md)**.

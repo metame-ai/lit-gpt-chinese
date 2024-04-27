@@ -30,6 +30,8 @@ Uses the latest state-of-the-art techniques:
 </div>
 
 &nbsp;
+<img src="https://pl-bolts-doc-images.s3.us-east-2.amazonaws.com/GithubLitGPTDAG2.png" alt="LitGPT steps" width="auto"/>
+&nbsp;
 
 # Finetune, pretrain and deploy LLMs Lightning fast ⚡⚡   
 LitGPT is a command-line tool designed to easily [finetune](#finetune-an-llm), [pretrain](#pretrain-an-llm), [evaluate](#use-an-llm), and [deploy](#deploy-an-llm) [20+ LLMs](#choose-from-20-llms) **on your own data**. It features highly-optimized [training recipes](#training-recipes) for the world's most powerful open-source large language models (LLMs).
@@ -42,6 +44,8 @@ We reimplemented all model architectures and training recipes from scratch for 4
 4. Highly-optimized [recipe configs](#training-recipes) we have tested at enterprise scale.               
 
 ---
+
+&nbsp;
 
 # Choose from 20+ LLMs
 LitGPT has 🤯 **custom, from-scratch implementations** of [20+ LLMs](tutorials/download_model_weights.md) without layers of abstraction:   
@@ -67,6 +71,7 @@ LitGPT has 🤯 **custom, from-scratch implementations** of [20+ LLMs](tutorials
 
 <details>
   <summary>See full list of 20+ LLMs</summary>
+
 &nbsp; 
 
 #### All models
@@ -98,6 +103,8 @@ LitGPT has 🤯 **custom, from-scratch implementations** of [20+ LLMs](tutorials
 
 </details>
 
+&nbsp;
+
 ## Install LitGPT
 
 Install LitGPT with all dependencies (including CLI, quantization, tokenizers for all models, etc.):
@@ -120,20 +127,19 @@ pip install -e '.[all]'
 ```
 </details>
 
-&nbsp;
-
 ---
 
+&nbsp;
 # Quick start
 After installing LitGPT, select the model and action you want to take on that model (finetune, pretrain, evaluate, deploy, etc...):    
 
 ```bash
 # ligpt [action] [model]
-litgpt  download  mistralai/Mistral-7B-Instruct-v0.2
-litgpt  chat      mistralai/Mistral-7B-Instruct-v0.2
-litgpt  finetune  mistralai/Mistral-7B-Instruct-v0.2    
-litgpt  pretrain  mistralai/Mistral-7B-Instruct-v0.2    
-litgpt  serve     mistralai/Mistral-7B-Instruct-v0.2    
+litgpt  download  meta-llama/Meta-Llama-3-8B-Instruct
+litgpt  chat      meta-llama/Meta-Llama-3-8B-Instruct
+litgpt  finetune  meta-llama/Meta-Llama-3-8B-Instruct    
+litgpt  pretrain  meta-llama/Meta-Llama-3-8B-Instruct    
+litgpt  serve     meta-llama/Meta-Llama-3-8B-Instruct    
 ```
 
 &nbsp;
@@ -184,11 +190,11 @@ litgpt finetune \
   --data JSON \
   --data.json_path my_custom_dataset.json \
   --data.val_split_fraction 0.1 \
-  --out_dir out/phi-2-lora
+  --out_dir out/custom-model
 
 # 3) Chat with the model
 litgpt chat \
-  --checkpoint_dir out/phi-2-lora/final
+  --checkpoint_dir out/custom-model/final
 ```
 
 &nbsp;
